@@ -1,0 +1,57 @@
+# sender/config/sender_params.yaml
+# 发送端所有运行时参数
+#
+# 优先级: launch 覆盖 > YAML > 代码默认值
+# 使用 /** 通配符作用于所有节点
+
+/**:
+  ros__parameters:
+    # ===== 相机 (HikCameraNode) =====
+    camera_name: "narrow_stereo"
+    use_sensor_data_qos: true
+    exposure_time: 12000.0          # 曝光时间 (us)
+    gain: 10.0
+    camera_info_url: ""             # 空则不加载标定
+
+    # ===== 编码器 (VideoEncoderNode) =====
+    input_topic: "/image_raw"
+    crop_size: 800                  # 中心裁剪 (px)
+    output_size: 300                # 编码分辨率 (px)
+    output_fps: 60                  # 编码帧率 (<=60)
+    target_bitrate: 80              # x264 目标码率 (kbps)
+    x264_preset: "veryslow"         # x264 速度预设
+
+    # 图像预处理
+    static_simplify: true
+    motion_threshold: 14
+    motion_erode_px: 2
+    motion_dilate_px: 6
+    motion_trail_frames: 90         # clamped to 15
+    trail_disable_motion_ratio: 0.30
+    bg_update_alpha: 0.01
+    bg_blur_sigma: 1.8
+    center_clear_size: 150
+    force_monochrome: false
+
+    # 流控
+    bandwidth_limit_kbytes: 14.0
+    bandwidth_window_s: 1.0
+    max_tx_delay_s: 1.0
+
+    # 显示
+    enable_display: true
+
+    # 调试 dump
+    debug_dump_enable: false
+    debug_dump_every_n_frames: 20
+    debug_dump_save_raw: false
+    debug_dump_save_roi: true
+    debug_dump_save_static: false
+    debug_dump_save_final: true
+    debug_dump_dir: "sniper_debug_imgs"
+
+    # ===== MQTT 桥接 (MqttBridgeNode) =====
+    mqtt_broker_host: "192.168.12.1"
+    mqtt_broker_port: 3333
+    mqtt_topic: "CustomByteBlock"
+    serial_data_topic: "/video_encoder/serial_data"

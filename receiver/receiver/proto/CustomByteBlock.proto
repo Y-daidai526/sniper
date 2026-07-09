@@ -1,0 +1,7 @@
+syntax = "proto3";
+
+package sniper;
+
+message CustomByteBlock {
+    optional bytes data = 1;
+}

@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>receiver</name>
+  <version>0.1.0</version>
+  <description>
+    MQTT-based H264 video decoder for RoboMaster referee system (0x0310).
+    Subscribes to CustomByteBlock via MQTT, decodes H264 with PyAV, displays with OpenCV.
+  </description>
+  <maintainer email="dev@example.com">developer</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <depend>rclpy</depend>
+  <depend>std_msgs</depend>
+
+  <!-- pip dependencies (手动安装) -->
+  <!-- paho-mqtt, protobuf, av, opencv-python -->
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

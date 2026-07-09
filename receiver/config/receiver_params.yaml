@@ -1,0 +1,23 @@
+# receiver/config/receiver_params.yaml
+# 接收端（操作手PC）参数
+#
+# 优先级: launch 覆盖 > YAML > 代码默认值
+
+video_decoder:
+  ros__parameters:
+    broker_host: "127.0.0.1"      # MQTT Broker IP
+    broker_port: 3333              # MQTT Broker 端口
+    topic: "CustomByteBlock"       # MQTT 订阅 topic
+    client_id: ""                  # 客户端 ID（空则自动生成）
+
+    display: true                  # 是否显示画面
+    width: 300                     # 解码期望宽度
+    height: 300                    # 解码期望高度
+    display_scale: 2               # 显示缩放倍数 (300→600)
+    crosshair_offset_x: 0          # 准心 X 偏移
+    crosshair_offset_y: 0          # 准心 Y 偏移
+    crosshair_width: 1             # 准心线宽
+
+    debug_dump_enable: false
+    debug_dump_every_n_frames: 20
+    debug_dump_dir: "sniper_debug_imgs"
