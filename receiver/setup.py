@@ -24,6 +24,7 @@ setup(
     license='MIT',
     entry_points={
         'console_scripts': [
+            'receiver_node = receiver.video_decoder_node:main',
             'decoder_node = receiver.video_decoder_node:main',
         ],
     },

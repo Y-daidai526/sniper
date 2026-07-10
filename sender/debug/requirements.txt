@@ -1,2 +1,2 @@
 paho-mqtt>=2.0
-protobuf>=4.0
+amqtt>=0.11

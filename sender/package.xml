@@ -2,23 +2,20 @@
 <package format="3">
   <name>sender</name>
   <version>0.1.0</version>
-  <description>
-    Low-bandwidth H264 video encoder + serial bridge for RoboMaster referee system (0x0310).
-    Dual output: 150B VideoPacket (ROS2, compatible with doorlock_decoder) + 309B serial frame (USB CDC + debug MQTT).
-  </description>
+  <description>Low-bandwidth H264 sender for RoboMaster referee 0x0310 custom video transport.</description>
   <maintainer email="dev@example.com">developer</maintainer>
   <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
+  <depend>ament_index_cpp</depend>
+  <exec_depend>ament_index_python</exec_depend>
   <depend>rclcpp</depend>
   <depend>rclcpp_components</depend>
   <depend>sensor_msgs</depend>
   <depend>cv_bridge</depend>
-  <depend>std_msgs</depend>
   <depend>image_transport</depend>
   <depend>camera_info_manager</depend>
-  <depend>doorlock_sniper</depend>
   <depend>libopencv-dev</depend>
   <depend>libgstreamer1.0-dev</depend>
   <depend>libgstreamer-plugins-base1.0-dev</depend>

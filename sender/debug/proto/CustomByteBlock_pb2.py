@@ -14,9 +14,6 @@ Wire format for field 1 (bytes):
   Value: raw bytes
 """
 
-import struct
-
-
 class CustomByteBlock:
     """Protobuf-compatible CustomByteBlock message."""
 

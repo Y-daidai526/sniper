@@ -1,109 +1,128 @@
-/**
- * sender/main.cpp — 发送端入口
- *
- * 启动流程:
- *   1. ROS2 init
- *   2. 创建 VideoEncoderNode (ComposableNode 加载)
- *   3. 注册 SerialDataCallback: 300B data → serial_writer + debug_bridge
- *   4. 启动 serial_writer (USB CDC 热插拔)
- *   5. 启动 debug_bridge (fork Python 子进程)
- *   6. ROS2 spin
- *
- * 三输出: serial_writer (USB CDC) + ROS2 VideoPacket + debug_bridge (stdin pipe)
- */
-
+#include <ament_index_cpp/get_package_share_directory.hpp>
 #include <rclcpp/rclcpp.hpp>
+
 #include <csignal>
+#include <cstdio>
+#include <filesystem>
 #include <memory>
+#include <string>
 
-#include "encoder/video_encoder_node.hpp"
-#include "serial/serial_writer.hpp"
+#include "camera/hik_camera_node.hpp"
 #include "debug/debug_bridge.hpp"
+#include "encoder/video_encoder_node.hpp"
 #include "protocol/serial_frame.hpp"
-
-using namespace sniper;
+#include "serial/serial_writer.hpp"
 
 namespace {
-    volatile std::sig_atomic_t g_shutdown = 0;
+bool require_bool_parameter(const rclcpp::Node::SharedPtr &node, const std::string &name) {
+    node->declare_parameter(name, rclcpp::ParameterType::PARAMETER_BOOL);
+    return node->get_parameter(name).as_bool();
 }
 
-void signal_handler(int) { g_shutdown = 1; }
+int require_int_parameter(const rclcpp::Node::SharedPtr &node, const std::string &name) {
+    node->declare_parameter(name, rclcpp::ParameterType::PARAMETER_INTEGER);
+    return static_cast<int>(node->get_parameter(name).as_int());
+}
+
+std::string require_string_parameter(const rclcpp::Node::SharedPtr &node, const std::string &name) {
+    node->declare_parameter(name, rclcpp::ParameterType::PARAMETER_STRING);
+    return node->get_parameter(name).as_string();
+}
+
+std::string default_debug_dir() {
+    try {
+        return (std::filesystem::path(ament_index_cpp::get_package_share_directory("sender")) / "debug").string();
+    } catch (const std::exception &) {
+        return (std::filesystem::current_path() / "sender" / "debug").string();
+    }
+}
+} // namespace
 
 int main(int argc, char **argv) {
     rclcpp::init(argc, argv);
+#ifdef SIGPIPE
+    std::signal(SIGPIPE, SIG_IGN);
+#endif
 
-    std::signal(SIGINT, signal_handler);
-    std::signal(SIGTERM, signal_handler);
-
-    // 创建编码器节点（带相机+编码器的容器由 launch 文件管理）
-    // 独立运行时，手动 create node
+    try {
     rclcpp::NodeOptions options;
-    auto encoder_node = std::make_shared<encoder::VideoEncoderNode>(options);
+    options.use_intra_process_comms(true);
 
-    // 串口 + debug bridge
-    serial::SerialWriter serial_writer;
-    debug::DebugBridge debug_bridge;
+    auto runtime_node = std::make_shared<rclcpp::Node>("sender_runtime", options);
+    const bool enable_serial = require_bool_parameter(runtime_node, "enable_serial");
+    const bool enable_debug_bridge = require_bool_parameter(runtime_node, "enable_debug_bridge");
+    const bool debug_start_broker = require_bool_parameter(runtime_node, "debug_start_broker");
+    const std::string debug_mqtt_host = require_string_parameter(runtime_node, "debug_mqtt_host");
+    const int debug_mqtt_port = require_int_parameter(runtime_node, "debug_mqtt_port");
+    const std::string debug_mqtt_topic = require_string_parameter(runtime_node, "debug_mqtt_topic");
+    std::string debug_script_dir = require_string_parameter(runtime_node, "debug_script_dir");
+    if (debug_script_dir.empty()) {
+        debug_script_dir = default_debug_dir();
+    }
 
-    // 启动串口热插拔监控
-    serial_writer.start([](const std::string &dev, bool connected) {
-        if (connected) {
-            fprintf(stdout, "[main] serial device inserted: %s\n", dev.c_str());
-        } else {
-            fprintf(stdout, "[main] serial device removed: %s\n", dev.c_str());
-        }
-    });
+    auto camera_node = std::make_shared<sniper::camera::HikCameraNode>(options);
+    auto encoder_node = std::make_shared<sniper::encoder::VideoEncoderNode>(options);
 
-    // 启动 debug 桥接（子进程 python3 sender/debug/main.py）
-    // script_dir: 从安装路径或源路径查找
-    // 简化: 假设工作目录为 colcon workspace root,
-    //       sender/debug/ 在 src/sender/debug/ 或 install/sender/share/sender/debug/
-    std::string debug_dir;
-    // 尝试相对路径
-    if (access("src/sender/debug/main.py", R_OK) == 0) {
-        debug_dir = "src/sender/debug";
-    } else if (access("../src/sender/debug/main.py", R_OK) == 0) {
-        debug_dir = "../src/sender/debug";
-    } else if (access("install/sender/share/sender/debug/main.py", R_OK) == 0) {
-        debug_dir = "install/sender/share/sender/debug";
+    sniper::serial::SerialWriter serial_writer;
+    sniper::debug::DebugBridge debug_bridge;
+
+    if (enable_serial) {
+        serial_writer.start([](const std::string &device, bool connected) {
+            if (connected) {
+                std::fprintf(stdout, "[sender] serial connected: %s\n", device.c_str());
+            } else {
+                std::fprintf(stdout, "[sender] serial disconnected: %s\n", device.c_str());
+            }
+        });
     } else {
-        // 最后尝试绝对路径（硬编码常见位置）
-        fprintf(stdout, "[main] WARNING: cannot find debug/main.py, "
-                        "debug bridge disabled\n");
+        RCLCPP_WARN(runtime_node->get_logger(), "serial output disabled by config");
     }
 
-    if (!debug_dir.empty()) {
-        if (debug_bridge.start(debug_dir)) {
-            fprintf(stdout, "[main] debug bridge started\n");
+    if (enable_debug_bridge) {
+        if (std::filesystem::exists(std::filesystem::path(debug_script_dir) / "main.py")) {
+            if (!debug_bridge.start(
+                    debug_script_dir,
+                    debug_mqtt_host,
+                    debug_mqtt_port,
+                    debug_mqtt_topic,
+                    debug_start_broker)) {
+                RCLCPP_ERROR(runtime_node->get_logger(), "failed to start debug bridge");
+            }
         } else {
-            fprintf(stderr, "[main] debug bridge failed to start\n");
+            RCLCPP_WARN(
+                runtime_node->get_logger(),
+                "debug bridge disabled: %s/main.py not found",
+                debug_script_dir.c_str());
         }
     }
 
-    // 注册回调: 300B data → 构造 309B 帧 → serial + debug
     encoder_node->set_serial_data_callback(
-        [&serial_writer, &debug_bridge](const uint8_t *data_300) {
+        [&serial_writer, &debug_bridge, enable_serial, enable_debug_bridge](const uint8_t *data_300) {
             static uint8_t frame_seq = 0;
-            auto frame = protocol::build_frame(frame_seq++, data_300);
-
-            // 写串口
-            serial_writer.write_frame(frame.data(), frame.size());
-
-            // 写 debug 桥接
-            debug_bridge.write_frame(frame.data(), frame.size());
+            const auto frame = sniper::protocol::build_frame(frame_seq++, data_300);
+            if (enable_serial) {
+                serial_writer.write_frame(frame.data(), frame.size());
+            }
+            if (enable_debug_bridge) {
+                debug_bridge.write_frame(frame.data(), frame.size());
+            }
         });
 
-    fprintf(stdout, "[main] sender started: encoder + serial + debug\n");
+    rclcpp::executors::MultiThreadedExecutor executor;
+    executor.add_node(runtime_node);
+    executor.add_node(camera_node);
+    executor.add_node(encoder_node);
 
-    // spin
-    rclcpp::executors::SingleThreadedExecutor exec;
-    exec.add_node(encoder_node);
-    exec.spin();
-
-    fprintf(stdout, "[main] shutting down...\n");
+    RCLCPP_INFO(runtime_node->get_logger(), "sender started");
+    executor.spin();
 
     debug_bridge.stop();
     serial_writer.stop();
-
     rclcpp::shutdown();
     return 0;
+    } catch (const std::exception &e) {
+        std::fprintf(stderr, "[sender] fatal error: %s\n", e.what());
+        rclcpp::shutdown();
+        return 1;
+    }
 }

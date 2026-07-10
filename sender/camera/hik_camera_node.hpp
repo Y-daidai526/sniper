@@ -33,6 +33,8 @@ private:
     MV_IMAGE_BASIC_INFO img_info_{};
 
     std::string camera_name_;
+    std::string image_topic_;
+    std::string frame_id_;
     std::unique_ptr<camera_info_manager::CameraInfoManager> camera_info_manager_;
     sensor_msgs::msg::CameraInfo camera_info_msg_;
 
