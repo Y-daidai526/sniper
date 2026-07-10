@@ -497,7 +497,6 @@ void VideoEncoderNode::image_callback(const sensor_msgs::msg::Image::SharedPtr m
 
         push_frame_to_gstreamer(processed);
         pull_stream_and_packetize();
-        frame_count_++;
     } catch (const cv_bridge::Exception &e) {
         RCLCPP_ERROR(this->get_logger(), "cv_bridge error: %s", e.what());
     }
@@ -777,16 +776,32 @@ void VideoEncoderNode::display_loop() {
         cv::Mat frame;
         {
             std::lock_guard<std::mutex> lock(frame_mutex_);
-            if (!display_raw_frame_.empty()) display_raw_frame_.copyTo(raw_frame);
-            if (!display_roi_frame_.empty()) display_roi_frame_.copyTo(roi_frame);
-            if (!display_static_frame_.empty()) display_static_frame_.copyTo(static_frame);
-            if (!display_frame_.empty()) display_frame_.copyTo(frame);
+            if (!display_raw_frame_.empty()) {
+                display_raw_frame_.copyTo(raw_frame);
+            }
+            if (!display_roi_frame_.empty()) {
+                display_roi_frame_.copyTo(roi_frame);
+            }
+            if (!display_static_frame_.empty()) {
+                display_static_frame_.copyTo(static_frame);
+            }
+            if (!display_frame_.empty()) {
+                display_frame_.copyTo(frame);
+            }
         }
 
-        if (!raw_frame.empty()) cv::imshow("Sniper Raw", raw_frame);
-        if (!roi_frame.empty()) cv::imshow("Sniper ROI", roi_frame);
-        if (!static_frame.empty()) cv::imshow("Sniper Static", static_frame);
-        if (!frame.empty()) cv::imshow("Sniper Encoder", frame);
+        if (!raw_frame.empty()) {
+            cv::imshow("Sniper Raw", raw_frame);
+        }
+        if (!roi_frame.empty()) {
+            cv::imshow("Sniper ROI", roi_frame);
+        }
+        if (!static_frame.empty()) {
+            cv::imshow("Sniper Static", static_frame);
+        }
+        if (!frame.empty()) {
+            cv::imshow("Sniper Encoder", frame);
+        }
 
         cv::waitKey(1);
         std::this_thread::sleep_for(std::chrono::milliseconds(16));

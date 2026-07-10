@@ -11,8 +11,7 @@ class PacketStatus:
 
 class StatsTracker:
     def __init__(self):
-        self._start_time = time.time()
-        self._last_print = self._start_time
+        self._last_print = time.time()
         self._packet_count = 0
         self._byte_count = 0
         self._gap_count = 0

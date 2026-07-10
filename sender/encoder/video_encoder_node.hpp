@@ -77,7 +77,6 @@ private:
 
     uint64_t video_packet_sequence_id_ = 0;
     uint8_t serial_inner_seq_ = 0;
-    uint32_t frame_count_ = 0;
     int64_t last_encode_stamp_ns_ = 0;
     int64_t next_serial_tx_ns_ = 0;
     int64_t last_telemetry_ns_ = 0;

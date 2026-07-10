@@ -57,6 +57,7 @@ class VideoDecoderNode(Node):
         self._stats = StatsTracker()
 
         if self._display:
+            self._display_window_size: tuple[int, int] | None = None
             self._frame_queue: queue.Queue = queue.Queue(maxsize=3)
             self._display_thread = threading.Thread(target=self._display_loop, daemon=True)
             self._display_thread.start()
@@ -74,16 +75,7 @@ class VideoDecoderNode(Node):
         self.get_logger().warn(f"reset decoder ({reason})")
 
     def _poll_mqtt(self) -> None:
-        if not self._mqtt.connected and self._mqtt.retry_connect(1.0):
-            if self._mqtt.connect():
-                self.get_logger().info("MQTT reconnect requested")
-            else:
-                now = time.monotonic()
-                if now - self._last_mqtt_retry_log_s >= 3.0:
-                    self.get_logger().warn(
-                        f"MQTT disconnected, retrying {self._mqtt.last_error}"
-                    )
-                    self._last_mqtt_retry_log_s = now
+        self._retry_mqtt_if_needed()
 
         while True:
             data = self._mqtt.get_data(0.0)
@@ -106,6 +98,19 @@ class VideoDecoderNode(Node):
             except Exception as exc:
                 self._stats.record_error()
                 self.get_logger().debug(f"decode error: {exc}")
+
+    def _retry_mqtt_if_needed(self) -> None:
+        if self._mqtt.connected or not self._mqtt.retry_connect(1.0):
+            return
+
+        if self._mqtt.connect():
+            self.get_logger().info("MQTT reconnect requested")
+            return
+
+        now = time.monotonic()
+        if now - self._last_mqtt_retry_log_s >= 3.0:
+            self.get_logger().warn(f"MQTT disconnected, retrying {self._mqtt.last_error}")
+            self._last_mqtt_retry_log_s = now
 
     def _handle_decoded_frame(self, frame) -> None:
         if frame is None or frame.width == 0 or frame.height == 0:
@@ -135,6 +140,9 @@ class VideoDecoderNode(Node):
                 img_disp = cv2.resize(img, display_size, interpolation=cv2.INTER_NEAREST)
                 self._draw_overlay(img_disp)
                 cv2.imshow("Sniper Receiver", img_disp)
+                if display_size != self._display_window_size:
+                    cv2.resizeWindow("Sniper Receiver", *display_size)
+                    self._display_window_size = display_size
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     rclpy.shutdown()
                     break

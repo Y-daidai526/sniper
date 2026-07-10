@@ -21,10 +21,6 @@ using SerialFrame = std::array<uint8_t, kFrameSize>;
 
 SerialFrame build_frame(uint8_t seq, const uint8_t *data_300);
 
-inline uint8_t extract_inner_seq(const uint8_t *data_300) {
-    return data_300[0];
-}
-
 } // namespace sniper::protocol
 
 #endif

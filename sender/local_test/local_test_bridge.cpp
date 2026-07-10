@@ -7,6 +7,7 @@
 #include <string>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <vector>
 
 namespace sniper::local_test {
 
@@ -45,34 +46,23 @@ bool LocalTestBridge::start(
         }
 
         const std::string port_arg = std::to_string(mqtt_port);
+        std::vector<const char *> args = {
+            "python3",
+            "main.py",
+            "--host",
+            mqtt_host.c_str(),
+            "--port",
+            port_arg.c_str(),
+            "--topic",
+            mqtt_topic.c_str(),
+        };
         if (start_broker) {
-            execlp(
-                "python3",
-                "python3",
-                "main.py",
-                "--host",
-                mqtt_host.c_str(),
-                "--port",
-                port_arg.c_str(),
-                "--topic",
-                mqtt_topic.c_str(),
-                "--start-broker",
-                nullptr);
-        } else {
-            execlp(
-                "python3",
-                "python3",
-                "main.py",
-                "--host",
-                mqtt_host.c_str(),
-                "--port",
-                port_arg.c_str(),
-                "--topic",
-                mqtt_topic.c_str(),
-                nullptr);
+            args.push_back("--start-broker");
         }
+        args.push_back(nullptr);
+        execvp("python3", const_cast<char *const *>(args.data()));
 
-        std::fprintf(stderr, "[local_test_bridge] execlp failed: %s\n", std::strerror(errno));
+        std::fprintf(stderr, "[local_test_bridge] execvp failed: %s\n", std::strerror(errno));
         _exit(1);
     }
 

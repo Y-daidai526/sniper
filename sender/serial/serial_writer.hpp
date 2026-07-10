@@ -20,7 +20,6 @@ public:
     void start(StatusCallback cb);
     void stop();
     bool write_frame(const uint8_t *frame, size_t len);
-    bool is_connected() const;
     std::string current_device() const;
 
 private:

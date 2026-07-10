@@ -77,16 +77,17 @@ class MqttReceiver:
         return self._last_error
 
     def _on_connect(self, client, userdata, flags, reason_code, properties=None) -> None:
-        if int(reason_code) == 0:
-            self._connected = True
-            client.subscribe(self._topic, qos=0)
-            print(
-                f"[mqtt] connected {self._host}:{self._port} topic={self._topic} client_id={self._client_id}",
-                file=sys.stderr,
-            )
-        else:
+        if int(reason_code) != 0:
             self._connected = False
             print(f"[mqtt] connect rejected: reason_code={reason_code}", file=sys.stderr)
+            return
+
+        self._connected = True
+        client.subscribe(self._topic, qos=0)
+        print(
+            f"[mqtt] connected {self._host}:{self._port} topic={self._topic} client_id={self._client_id}",
+            file=sys.stderr,
+        )
 
     def _on_disconnect(self, client, userdata, *args) -> None:
         reason_code = args[-2] if len(args) >= 2 else args[0] if args else 0
@@ -103,13 +104,19 @@ class MqttReceiver:
             if len(data) != 300:
                 print(f"[mqtt] ignore CustomByteBlock data size {len(data)}", file=sys.stderr)
                 return
-            try:
-                self._queue.put_nowait(data)
-            except queue.Full:
-                try:
-                    self._queue.get_nowait()
-                except queue.Empty:
-                    pass
-                self._queue.put_nowait(data)
+            self._push_latest(data)
         except Exception as exc:
             print(f"[mqtt] parse error: {exc}", file=sys.stderr)
+
+    def _push_latest(self, data: bytes) -> None:
+        try:
+            self._queue.put_nowait(data)
+            return
+        except queue.Full:
+            pass
+
+        try:
+            self._queue.get_nowait()
+        except queue.Empty:
+            pass
+        self._queue.put_nowait(data)

@@ -33,11 +33,6 @@ void SerialWriter::stop() {
     close_current();
 }
 
-bool SerialWriter::is_connected() const {
-    std::lock_guard<std::mutex> lock(write_mutex_);
-    return fd_ >= 0;
-}
-
 std::string SerialWriter::current_device() const {
     std::lock_guard<std::mutex> lock(write_mutex_);
     return fd_ >= 0 ? current_device_ : "";
