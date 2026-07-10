@@ -1,18 +1,23 @@
 video_decoder:
   ros__parameters:
+    # 消息服务器 MQTT broker 地址。
     broker_host: "127.0.0.1"
+    # 消息服务器 MQTT broker 端口。
     broker_port: 3333
+    # 消息体 Protobuf CustomByteBlock 话题。
     topic: "CustomByteBlock"
+    # 客户端 MQTT client id，多 receiver 同时运行时需要保持唯一。
     client_id: "1"
+    # 接收到的 MQTT 视频包最大队列长度，满了会丢弃旧包。
     mqtt_queue_size: 1000
 
+    # 是否显示 OpenCV 接收画面窗口。
     display: true
-    display_scale: 2
+    # 解码后 300x300 图像的显示放大倍率。
+    display_scale: 3
+    # 准星水平偏移，单位为显示后的像素。
     crosshair_offset_x: 0
+    # 准星垂直偏移，单位为显示后的像素。
     crosshair_offset_y: 0
+    # 准星线宽。
     crosshair_width: 1
-
-    stats_interval_s: 1.0
-    debug_dump_enable: false
-    debug_dump_every_n_frames: 20
-    debug_dump_dir: "sniper_debug_imgs"

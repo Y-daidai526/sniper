@@ -1,4 +1,4 @@
-#include "debug_bridge.hpp"
+#include "local_test_bridge.hpp"
 
 #include <cerrno>
 #include <csignal>
@@ -8,13 +8,13 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-namespace sniper::debug {
+namespace sniper::local_test {
 
-DebugBridge::~DebugBridge() {
+LocalTestBridge::~LocalTestBridge() {
     stop();
 }
 
-bool DebugBridge::start(
+bool LocalTestBridge::start(
     const std::string &script_dir,
     const std::string &mqtt_host,
     int mqtt_port,
@@ -22,13 +22,13 @@ bool DebugBridge::start(
     bool start_broker) {
     int pipefd[2];
     if (pipe(pipefd) != 0) {
-        std::fprintf(stderr, "[debug_bridge] pipe failed: %s\n", std::strerror(errno));
+        std::fprintf(stderr, "[local_test_bridge] pipe failed: %s\n", std::strerror(errno));
         return false;
     }
 
     const pid_t pid = fork();
     if (pid < 0) {
-        std::fprintf(stderr, "[debug_bridge] fork failed: %s\n", std::strerror(errno));
+        std::fprintf(stderr, "[local_test_bridge] fork failed: %s\n", std::strerror(errno));
         close(pipefd[0]);
         close(pipefd[1]);
         return false;
@@ -40,7 +40,7 @@ bool DebugBridge::start(
         close(pipefd[0]);
 
         if (chdir(script_dir.c_str()) != 0) {
-            std::fprintf(stderr, "[debug_bridge] chdir(%s) failed: %s\n", script_dir.c_str(), std::strerror(errno));
+            std::fprintf(stderr, "[local_test_bridge] chdir(%s) failed: %s\n", script_dir.c_str(), std::strerror(errno));
             _exit(1);
         }
 
@@ -72,18 +72,18 @@ bool DebugBridge::start(
                 nullptr);
         }
 
-        std::fprintf(stderr, "[debug_bridge] execlp failed: %s\n", std::strerror(errno));
+        std::fprintf(stderr, "[local_test_bridge] execlp failed: %s\n", std::strerror(errno));
         _exit(1);
     }
 
     close(pipefd[0]);
     stdin_pipe_ = pipefd[1];
     child_pid_ = pid;
-    std::fprintf(stdout, "[debug_bridge] child pid=%d\n", static_cast<int>(child_pid_));
+    std::fprintf(stdout, "[local_test_bridge] child pid=%d\n", static_cast<int>(child_pid_));
     return true;
 }
 
-void DebugBridge::stop() {
+void LocalTestBridge::stop() {
     if (stdin_pipe_ >= 0) {
         close(stdin_pipe_);
         stdin_pipe_ = -1;
@@ -99,7 +99,7 @@ void DebugBridge::stop() {
         const pid_t ret = waitpid(child_pid_, &status, WNOHANG);
         if (ret == child_pid_) {
             exited = true;
-            std::fprintf(stdout, "[debug_bridge] child pid=%d exited\n", static_cast<int>(child_pid_));
+            std::fprintf(stdout, "[local_test_bridge] child pid=%d exited\n", static_cast<int>(child_pid_));
             break;
         }
         if (ret < 0) {
@@ -110,7 +110,7 @@ void DebugBridge::stop() {
     }
 
     if (!exited && kill(child_pid_, 0) == 0) {
-        std::fprintf(stdout, "[debug_bridge] terminating child pid=%d\n", static_cast<int>(child_pid_));
+        std::fprintf(stdout, "[local_test_bridge] terminating child pid=%d\n", static_cast<int>(child_pid_));
         kill(child_pid_, SIGTERM);
         waitpid(child_pid_, nullptr, 0);
     }
@@ -118,9 +118,9 @@ void DebugBridge::stop() {
     child_pid_ = 0;
 }
 
-void DebugBridge::write_frame(const uint8_t *frame, size_t len) {
+bool LocalTestBridge::write_frame(const uint8_t *frame, size_t len) {
     if (stdin_pipe_ < 0) {
-        return;
+        return true;
     }
 
     size_t total_written = 0;
@@ -130,19 +130,20 @@ void DebugBridge::write_frame(const uint8_t *frame, size_t len) {
             if (errno == EINTR) {
                 continue;
             }
-            std::fprintf(stderr, "[debug_bridge] write error: %s\n", std::strerror(errno));
+            std::fprintf(stderr, "[local_test_bridge] write error: %s\n", std::strerror(errno));
             close(stdin_pipe_);
             stdin_pipe_ = -1;
-            return;
+            return false;
         }
         if (written == 0) {
-            std::fprintf(stderr, "[debug_bridge] write returned 0\n");
+            std::fprintf(stderr, "[local_test_bridge] write returned 0\n");
             close(stdin_pipe_);
             stdin_pipe_ = -1;
-            return;
+            return false;
         }
         total_written += static_cast<size_t>(written);
     }
+    return true;
 }
 
-} // namespace sniper::debug
+} // namespace sniper::local_test

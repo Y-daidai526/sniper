@@ -2,7 +2,7 @@
 
 import queue
 import threading
-from pathlib import Path
+import time
 
 import av
 import cv2
@@ -44,27 +44,17 @@ class VideoDecoderNode(Node):
         self._crosshair_x = int(_required_param(self, "crosshair_offset_x", Parameter.Type.INTEGER))
         self._crosshair_y = int(_required_param(self, "crosshair_offset_y", Parameter.Type.INTEGER))
         self._crosshair_w = max(1, int(_required_param(self, "crosshair_width", Parameter.Type.INTEGER)))
-        stats_interval_s = float(_required_param(self, "stats_interval_s", Parameter.Type.DOUBLE))
-        self._debug_dump_enable = bool(_required_param(self, "debug_dump_enable", Parameter.Type.BOOL))
-        self._debug_dump_every_n_frames = max(
-            1,
-            int(_required_param(self, "debug_dump_every_n_frames", Parameter.Type.INTEGER)),
-        )
-        self._debug_dump_dir = Path(_required_string(self, "debug_dump_dir")) / "receiver"
-        self._display_frame_counter = 0
-
-        if self._debug_dump_enable:
-            self._debug_dump_dir.mkdir(parents=True, exist_ok=True)
 
         self.get_logger().info(f"connecting MQTT {broker_host}:{broker_port} topic={topic} client_id={client_id}")
         self._mqtt = MqttReceiver(client_id, broker_host, broker_port, topic, mqtt_queue_size)
         if not self._mqtt.connect():
-            self.get_logger().error("MQTT connection failed")
+            self.get_logger().error(f"MQTT connection failed: {self._mqtt.last_error}")
+        self._last_mqtt_retry_log_s = 0.0
 
         self._codec = None
         self._reset_decoder("startup")
         self._frame_count = 0
-        self._stats = StatsTracker(stats_interval_s)
+        self._stats = StatsTracker()
 
         if self._display:
             self._frame_queue: queue.Queue = queue.Queue(maxsize=3)
@@ -84,6 +74,17 @@ class VideoDecoderNode(Node):
         self.get_logger().warn(f"reset decoder ({reason})")
 
     def _poll_mqtt(self) -> None:
+        if not self._mqtt.connected and self._mqtt.retry_connect(1.0):
+            if self._mqtt.connect():
+                self.get_logger().info("MQTT reconnect requested")
+            else:
+                now = time.monotonic()
+                if now - self._last_mqtt_retry_log_s >= 3.0:
+                    self.get_logger().warn(
+                        f"MQTT disconnected, retrying {self._mqtt.last_error}"
+                    )
+                    self._last_mqtt_retry_log_s = now
+
         while True:
             data = self._mqtt.get_data(0.0)
             if data is None:
@@ -103,6 +104,7 @@ class VideoDecoderNode(Node):
                     for frame in self._codec.decode(packet):
                         self._handle_decoded_frame(frame)
             except Exception as exc:
+                self._stats.record_error()
                 self.get_logger().debug(f"decode error: {exc}")
 
     def _handle_decoded_frame(self, frame) -> None:
@@ -133,7 +135,6 @@ class VideoDecoderNode(Node):
                 img_disp = cv2.resize(img, display_size, interpolation=cv2.INTER_NEAREST)
                 self._draw_overlay(img_disp)
                 cv2.imshow("Sniper Receiver", img_disp)
-                self._dump_frame(img_disp)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     rclpy.shutdown()
                     break
@@ -152,15 +153,6 @@ class VideoDecoderNode(Node):
         cv2.line(img, (0, cy), (w - 1, cy), cross_color, self._crosshair_w, cv2.LINE_AA)
         cv2.line(img, (cx, 0), (cx, h - 1), cross_color, self._crosshair_w, cv2.LINE_AA)
         cv2.circle(img, (w // 2, h // 2), 24, (170, 255, 170), 1, cv2.LINE_AA)
-
-    def _dump_frame(self, img) -> None:
-        if not self._debug_dump_enable:
-            return
-        self._display_frame_counter += 1
-        if self._display_frame_counter % self._debug_dump_every_n_frames != 0:
-            return
-        out_path = self._debug_dump_dir / f"receiver_{self._display_frame_counter:08d}.png"
-        cv2.imwrite(str(out_path), img)
 
     def destroy_node(self) -> None:
         if self._display:

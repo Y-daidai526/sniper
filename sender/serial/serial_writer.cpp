@@ -38,6 +38,11 @@ bool SerialWriter::is_connected() const {
     return fd_ >= 0;
 }
 
+std::string SerialWriter::current_device() const {
+    std::lock_guard<std::mutex> lock(write_mutex_);
+    return fd_ >= 0 ? current_device_ : "";
+}
+
 std::string SerialWriter::find_device() {
     const char *patterns[] = {"/dev/ttyACM*", "/dev/ttyUSB*", nullptr};
     for (int i = 0; patterns[i] != nullptr; ++i) {
@@ -105,7 +110,7 @@ bool SerialWriter::try_open(const std::string &device) {
         fd_ = fd;
         current_device_ = device;
     }
-    std::fprintf(stdout, "[serial] connected: %s @ %d bps\n", device.c_str(), kSerialBaudRate);
+    std::fprintf(stdout, "[serial] connected: %s @ 921600 bps\n", device.c_str());
     return true;
 }
 
@@ -166,10 +171,10 @@ void SerialWriter::monitor_loop() {
     }
 }
 
-void SerialWriter::write_frame(const uint8_t *frame, size_t len) {
+bool SerialWriter::write_frame(const uint8_t *frame, size_t len) {
     std::lock_guard<std::mutex> lock(write_mutex_);
     if (fd_ < 0) {
-        return;
+        return true;
     }
 
     size_t total_written = 0;
@@ -181,15 +186,16 @@ void SerialWriter::write_frame(const uint8_t *frame, size_t len) {
             }
             std::fprintf(stderr, "[serial] write error: %s\n", std::strerror(errno));
             close_current_locked();
-            return;
+            return false;
         }
         if (written == 0) {
             std::fprintf(stderr, "[serial] write returned 0\n");
             close_current_locked();
-            return;
+            return false;
         }
         total_written += static_cast<size_t>(written);
     }
+    return true;
 }
 
 } // namespace sniper::serial

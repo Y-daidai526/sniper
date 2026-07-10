@@ -39,9 +39,11 @@ class EmbeddedBroker:
                     "bind": f"{self._host}:{self._port}",
                 }
             },
-            "sys_interval": 0,
-            "auth": {"allow-anonymous": True},
-            "topic-check": {"enabled": False},
+            "plugins": {
+                "amqtt.plugins.authentication.AnonymousAuthPlugin": {
+                    "allow_anonymous": True,
+                },
+            },
         }
 
         self._loop = asyncio.new_event_loop()

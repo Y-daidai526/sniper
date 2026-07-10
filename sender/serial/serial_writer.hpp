@@ -10,9 +10,6 @@
 
 namespace sniper::serial {
 
-constexpr int kSerialBaudRate = 921600;
-constexpr int kSerialDataBits = 8;
-
 class SerialWriter {
 public:
     using StatusCallback = std::function<void(const std::string &device, bool connected)>;
@@ -22,8 +19,9 @@ public:
 
     void start(StatusCallback cb);
     void stop();
-    void write_frame(const uint8_t *frame, size_t len);
+    bool write_frame(const uint8_t *frame, size_t len);
     bool is_connected() const;
+    std::string current_device() const;
 
 private:
     void monitor_loop();

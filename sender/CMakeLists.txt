@@ -25,29 +25,24 @@ set(MVS_ROOT /opt/MVS)
 set(MVS_INCLUDE_DIR ${MVS_ROOT}/include)
 set(MVS_LIB_DIR ${MVS_ROOT}/lib/64)
 
-include_directories(
-  ${CMAKE_CURRENT_SOURCE_DIR}
-  ${GSTREAMER_INCLUDE_DIRS}
-  ${OpenCV_INCLUDE_DIRS}
-  ${MVS_INCLUDE_DIR}
-)
-
-link_directories(${GSTREAMER_LIBRARY_DIRS} ${MVS_LIB_DIR})
-add_definitions(${GSTREAMER_CFLAGS_OTHER})
-
 add_library(hik_camera_node SHARED
   camera/hik_camera_node.cpp
 )
 target_compile_features(hik_camera_node PUBLIC cxx_std_17)
-ament_target_dependencies(hik_camera_node
-  rclcpp
-  rclcpp_components
-  sensor_msgs
-  image_transport
-  camera_info_manager
-  OpenCV
+target_include_directories(hik_camera_node PUBLIC
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  ${OpenCV_INCLUDE_DIRS}
+  ${MVS_INCLUDE_DIR}
 )
-target_link_libraries(hik_camera_node
+target_link_libraries(hik_camera_node PUBLIC
+  ${sensor_msgs_TARGETS}
+  camera_info_manager::camera_info_manager
+  image_transport::image_transport
+  rclcpp::rclcpp
+  rclcpp_components::component
+  rclcpp_components::component_manager
+  sensor_msgs::sensor_msgs_library
+  ${OpenCV_LIBRARIES}
   ${MVS_LIB_DIR}/libFormatConversion.so
   ${MVS_LIB_DIR}/libMediaProcess.so
   ${MVS_LIB_DIR}/libMvCameraControl.so
@@ -60,14 +55,21 @@ add_library(video_encoder_node SHARED
   encoder/video_encoder_node.cpp
 )
 target_compile_features(video_encoder_node PUBLIC cxx_std_17)
-ament_target_dependencies(video_encoder_node
-  rclcpp
-  rclcpp_components
-  sensor_msgs
-  cv_bridge
-  OpenCV
+target_include_directories(video_encoder_node PUBLIC
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  ${GSTREAMER_INCLUDE_DIRS}
+  ${OpenCV_INCLUDE_DIRS}
 )
-target_link_libraries(video_encoder_node
+target_compile_options(video_encoder_node PRIVATE ${GSTREAMER_CFLAGS_OTHER})
+target_link_directories(video_encoder_node PRIVATE ${GSTREAMER_LIBRARY_DIRS})
+target_link_libraries(video_encoder_node PUBLIC
+  ${sensor_msgs_TARGETS}
+  cv_bridge::cv_bridge
+  rclcpp::rclcpp
+  rclcpp_components::component
+  rclcpp_components::component_manager
+  sensor_msgs::sensor_msgs_library
+  ${OpenCV_LIBRARIES}
   ${GSTREAMER_LIBRARIES}
   ${GSTREAMER_APP_LIBRARIES}
 )
@@ -77,16 +79,17 @@ add_executable(sender_node
   main.cpp
   protocol/serial_frame.cpp
   serial/serial_writer.cpp
-  debug/debug_bridge.cpp
+  local_test/local_test_bridge.cpp
 )
 target_compile_features(sender_node PUBLIC cxx_std_17)
-ament_target_dependencies(sender_node
-  ament_index_cpp
-  rclcpp
+target_include_directories(sender_node PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}
 )
-target_link_libraries(sender_node
+target_link_libraries(sender_node PRIVATE
   hik_camera_node
   video_encoder_node
+  ament_index_cpp::ament_index_cpp
+  rclcpp::rclcpp
   ${GSTREAMER_LIBRARIES}
   ${GSTREAMER_APP_LIBRARIES}
   ${OpenCV_LIBRARIES}
@@ -98,8 +101,10 @@ install(TARGETS hik_camera_node video_encoder_node sender_node
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 
-install(DIRECTORY debug/
-  DESTINATION share/${PROJECT_NAME}/debug
+install(DIRECTORY local_test/
+  DESTINATION share/${PROJECT_NAME}/local_test
+  PATTERN "__pycache__" EXCLUDE
+  PATTERN "*.pyc" EXCLUDE
 )
 
 install(DIRECTORY config/

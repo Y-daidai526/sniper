@@ -22,6 +22,7 @@
 namespace sniper::encoder {
 
 using SerialDataCallback = std::function<void(const uint8_t *data_300)>;
+using SerialStatusProvider = std::function<std::string()>;
 
 class VideoEncoderNode : public rclcpp::Node {
 public:
@@ -29,6 +30,7 @@ public:
     ~VideoEncoderNode() override;
 
     void set_serial_data_callback(SerialDataCallback cb);
+    void set_serial_status_provider(SerialStatusProvider provider);
 
 private:
     void initialize_gstreamer();
@@ -71,6 +73,7 @@ private:
     std::deque<std::pair<int64_t, size_t>> sent_window_;
     std::mutex buffer_mutex_;
     SerialDataCallback serial_data_cb_;
+    SerialStatusProvider serial_status_provider_;
 
     uint64_t video_packet_sequence_id_ = 0;
     uint8_t serial_inner_seq_ = 0;
@@ -78,6 +81,8 @@ private:
     int64_t last_encode_stamp_ns_ = 0;
     int64_t next_serial_tx_ns_ = 0;
     int64_t last_telemetry_ns_ = 0;
+    uint64_t last_telemetry_serial_packets_ = 0;
+    uint64_t last_telemetry_ros2_packets_ = 0;
     uint64_t serial_dropped_bytes_ = 0;
     uint64_t video_stream_dropped_bytes_ = 0;
     uint32_t serial_drop_events_ = 0;
@@ -93,7 +98,6 @@ private:
     cv::Mat display_roi_frame_;
     cv::Mat display_static_frame_;
     cv::Mat display_frame_;
-    uint64_t display_frame_counter_ = 0;
 
     cv::Mat background_gray_f32_;
     cv::Mat motion_erode_kernel_;
@@ -103,34 +107,27 @@ private:
 
     std::string param_input_topic_;
     std::string param_video_stream_topic_;
-    int param_crop_size_ = 800;
-    int param_output_size_ = 300;
-    int param_output_fps_ = 60;
-    int param_target_bitrate_ = 80;
-    bool param_static_simplify_ = true;
-    bool param_enable_video_stream_ = true;
-    int param_motion_threshold_ = 14;
-    int param_motion_erode_px_ = 2;
-    int param_motion_dilate_px_ = 6;
-    int param_motion_trail_frames_ = 15;
-    double param_trail_disable_motion_ratio_ = 0.30;
-    double param_bg_update_alpha_ = 0.01;
-    double param_bg_blur_sigma_ = 1.8;
-    int param_center_clear_size_ = 150;
+    int param_crop_size_ = 0;
+    int param_output_size_ = 0;
+    int param_output_fps_ = 0;
+    int param_target_bitrate_ = 0;
+    bool param_static_simplify_ = false;
+    bool param_enable_video_stream_ = false;
+    int param_motion_threshold_ = 0;
+    int param_motion_erode_px_ = 0;
+    int param_motion_dilate_px_ = 0;
+    int param_motion_trail_frames_ = 0;
+    double param_trail_disable_motion_ratio_ = 0.0;
+    double param_bg_update_alpha_ = 0.0;
+    double param_bg_blur_sigma_ = 0.0;
+    int param_center_clear_size_ = 0;
     bool param_force_monochrome_ = false;
-    double param_bandwidth_limit_kbytes_ = 7.0;
-    double param_bandwidth_window_s_ = 2.0;
-    double param_serial_max_rate_hz_ = 50.0;
-    double param_max_tx_delay_s_ = 1.0;
-    bool param_enable_display_ = true;
-    std::string param_x264_preset_ = "auto";
-    bool param_debug_dump_enable_ = false;
-    int param_debug_dump_every_n_frames_ = 20;
-    bool param_debug_dump_save_raw_ = false;
-    bool param_debug_dump_save_roi_ = true;
-    bool param_debug_dump_save_static_ = false;
-    bool param_debug_dump_save_final_ = true;
-    std::string param_debug_dump_dir_ = "sniper_debug_imgs";
+    double param_bandwidth_limit_kbytes_ = 0.0;
+    double param_bandwidth_window_s_ = 0.0;
+    double param_serial_max_rate_hz_ = 0.0;
+    double param_max_tx_delay_s_ = 0.0;
+    bool param_enable_display_ = false;
+    std::string param_x264_preset_;
 };
 
 } // namespace sniper::encoder

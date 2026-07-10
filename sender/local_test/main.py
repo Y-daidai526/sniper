@@ -4,7 +4,7 @@ import argparse
 import sys
 
 from mqtt_server import MqttPublisher
-from serial_parser import FRAME_SIZE, parse_frame
+from serial_parser import parse_frame
 
 
 def parse_args() -> argparse.Namespace:
@@ -26,25 +26,23 @@ def main() -> int:
     error_count = 0
     try:
         while True:
-            raw = sys.stdin.buffer.read(FRAME_SIZE)
+            raw = sys.stdin.buffer.read(309)
             if len(raw) == 0:
-                print(f"[debug] stdin EOF frames={frame_count} errors={error_count}", file=sys.stderr)
+                print(f"[local_test] stdin EOF frames={frame_count} errors={error_count}", file=sys.stderr)
                 break
-            if len(raw) != FRAME_SIZE:
-                print(f"[debug] short read: {len(raw)}B", file=sys.stderr)
+            if len(raw) != 309:
+                print(f"[local_test] short read: {len(raw)}B", file=sys.stderr)
                 break
 
             ok, data_300, seq, error = parse_frame(raw)
             if not ok:
                 error_count += 1
                 if error_count <= 5 or error_count % 100 == 0:
-                    print(f"[debug] parse error: {error}", file=sys.stderr)
+                    print(f"[local_test] parse error: {error}", file=sys.stderr)
                 continue
 
             publisher.publish(data_300)
             frame_count += 1
-            if frame_count % 300 == 0:
-                print(f"[debug] published frames={frame_count} last_frame_seq={seq}", file=sys.stderr)
     finally:
         publisher.disconnect()
 

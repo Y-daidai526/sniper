@@ -10,15 +10,20 @@ class PacketStatus:
 
 
 class StatsTracker:
-    def __init__(self, print_interval_s: float):
-        self._print_interval_s = print_interval_s
+    def __init__(self):
         self._start_time = time.time()
         self._last_print = self._start_time
         self._packet_count = 0
         self._byte_count = 0
         self._gap_count = 0
         self._dup_count = 0
+        self._error_count = 0
+        self._last_print_packet_count = 0
+        self._last_print_byte_count = 0
         self._last_seq: int | None = None
+
+    def record_error(self) -> None:
+        self._error_count += 1
 
     def record(self, seq: int, payload_len: int) -> PacketStatus:
         duplicate = False
@@ -39,20 +44,22 @@ class StatsTracker:
             self._last_seq = seq
 
         now = time.time()
-        if now - self._last_print >= self._print_interval_s:
+        if now - self._last_print >= 1.0:
             self._print(now)
             self._last_print = now
 
         return PacketStatus(duplicate=duplicate, gap=gap)
 
     def _print(self, now: float) -> None:
-        elapsed = max(now - self._start_time, 1e-6)
-        packet_rate = self._packet_count / elapsed
-        data_rate = (self._byte_count / elapsed) / 1000.0
-        total_expected = self._packet_count + self._gap_count
-        loss_rate = (self._gap_count / total_expected * 100.0) if total_expected > 0 else 0.0
+        elapsed = max(now - self._last_print, 1e-6)
+        packet_delta = self._packet_count - self._last_print_packet_count
+        byte_delta = self._byte_count - self._last_print_byte_count
+        packet_rate = packet_delta / elapsed
+        data_rate = (byte_delta / elapsed) / 1000.0
         print(
-            f"[stats] packets={self._packet_count} rate={packet_rate:.1f}pkt/s "
-            f"data={data_rate:.2f}kB/s gaps={self._gap_count} dups={self._dup_count} loss={loss_rate:.2f}%",
+            f"[receiver stats]: rate={packet_rate:.1f}pkt/s data={data_rate:.2f}kB/s "
+            f"packets={self._packet_count} gaps={self._gap_count} dups={self._dup_count} errors={self._error_count}",
             file=sys.stderr,
         )
+        self._last_print_packet_count = self._packet_count
+        self._last_print_byte_count = self._byte_count
