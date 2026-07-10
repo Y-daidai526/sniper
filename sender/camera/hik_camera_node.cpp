@@ -45,9 +45,6 @@ HikCameraNode::HikCameraNode(const rclcpp::NodeOptions &options)
         return;
     }
 
-    MV_CC_GetImageInfo(camera_handle_, &img_info_);
-    image_msg_.data.reserve(static_cast<size_t>(img_info_.nHeightMax) * img_info_.nWidthMax * 3);
-
     MVCC_ENUMVALUE pixel_format{};
     MV_CC_GetEnumValue(camera_handle_, "PixelFormat", &pixel_format);
     RCLCPP_INFO(this->get_logger(), "Camera support %d pixel format(s)", pixel_format.nSupportedNum);
@@ -59,13 +56,11 @@ HikCameraNode::HikCameraNode(const rclcpp::NodeOptions &options)
     const int img_height_max = int_value.nCurValue;
     RCLCPP_INFO(this->get_logger(), "Image size: (%d x %d)", img_width_max, img_height_max);
 
-    image_msg_.data.reserve(static_cast<size_t>(img_width_max) * img_height_max * 3);
+    image_msg_.data.resize(static_cast<size_t>(img_width_max) * img_height_max * 3);
 
     const bool use_sensor_data_qos = this->declare_parameter("use_sensor_data_qos", true);
-    image_topic_ = this->declare_parameter("image_topic", std::string("image_raw"));
-    frame_id_ = this->declare_parameter("frame_id", std::string("camera_optical_frame"));
     const auto qos = use_sensor_data_qos ? rmw_qos_profile_sensor_data : rmw_qos_profile_default;
-    camera_pub_ = image_transport::create_camera_publisher(this, image_topic_, qos);
+    camera_pub_ = image_transport::create_camera_publisher(this, "image_raw", qos);
 
     declareParameters();
 
@@ -102,9 +97,9 @@ HikCameraNode::HikCameraNode(const rclcpp::NodeOptions &options)
         MV_FRAME_OUT out_frame{};
         int frame_count = 0;
 
-        image_msg_.header.frame_id = frame_id_;
+        image_msg_.header.frame_id = "camera_optical_frame";
         image_msg_.encoding = "bgr8";
-        RCLCPP_INFO(this->get_logger(), "Publishing camera images on %s", image_topic_.c_str());
+        RCLCPP_INFO(this->get_logger(), "Publishing image");
 
         while (rclcpp::ok()) {
             nRet_ = MV_CC_GetImageBuffer(camera_handle_, &out_frame, 1000);
@@ -113,8 +108,6 @@ HikCameraNode::HikCameraNode(const rclcpp::NodeOptions &options)
                 image_msg_.width = out_frame.stFrameInfo.nWidth;
                 image_msg_.height = out_frame.stFrameInfo.nHeight;
                 image_msg_.step = image_msg_.width * 3;
-                image_msg_.data.resize(static_cast<size_t>(image_msg_.step) * image_msg_.height);
-
                 cv::Mat bayer_mat(
                     out_frame.stFrameInfo.nHeight,
                     out_frame.stFrameInfo.nWidth,
@@ -125,7 +118,8 @@ HikCameraNode::HikCameraNode(const rclcpp::NodeOptions &options)
                     out_frame.stFrameInfo.nWidth,
                     CV_8UC3,
                     image_msg_.data.data());
-                cv::cvtColor(bayer_mat, bgr_mat, cv::COLOR_BayerRG2BGR);
+                // Keep Pacific's proven Bayer conversion even though the ROS encoding is bgr8.
+                cv::cvtColor(bayer_mat, bgr_mat, cv::COLOR_BayerRG2RGB);
 
                 if (bgr_mat.empty()) {
                     RCLCPP_ERROR(this->get_logger(), "OpenCV Bayer conversion failed");
@@ -139,16 +133,16 @@ HikCameraNode::HikCameraNode(const rclcpp::NodeOptions &options)
                     const int center_y = static_cast<int>(image_msg_.height) / 2;
                     const int pixel_index = center_y * static_cast<int>(image_msg_.step) + center_x * 3;
                     if (pixel_index + 2 < static_cast<int>(image_msg_.data.size())) {
-                        const uint8_t b = image_msg_.data[pixel_index];
+                        const uint8_t r = image_msg_.data[pixel_index];
                         const uint8_t g = image_msg_.data[pixel_index + 1];
-                        const uint8_t r = image_msg_.data[pixel_index + 2];
+                        const uint8_t b = image_msg_.data[pixel_index + 2];
                         RCLCPP_INFO(
                             this->get_logger(),
-                            "Frame %d center pixel BGR=(%u,%u,%u)",
+                            "Frame %d center pixel R=%u G=%u B=%u",
                             frame_count,
-                            b,
+                            r,
                             g,
-                            r);
+                            b);
                     }
                 }
 
@@ -218,19 +212,11 @@ void HikCameraNode::declareParameters() {
 
     const double exposure_time = this->declare_parameter("exposure_time", 1000.0, param_desc);
     MV_CC_SetFloatValue(camera_handle_, "ExposureTime", static_cast<float>(exposure_time));
-
-    const double acquisition_frame_rate = this->declare_parameter("acquisition_frame_rate", 250.0);
-    MV_CC_SetFloatValue(camera_handle_, "AcquisitionFrameRate", static_cast<float>(acquisition_frame_rate));
-
-    const bool color_transformation_enable =
-        this->declare_parameter("color_transformation_enable", true);
-    MV_CC_SetBoolValue(camera_handle_, "ColorTransformationEnable", color_transformation_enable);
-
-    const double gamma = this->declare_parameter("gamma", 7.5);
-    MV_CC_SetFloatValue(camera_handle_, "Gamma", static_cast<float>(gamma));
-
-    const bool ccm_enable = this->declare_parameter("ccm_enable", false);
-    MV_CC_SetBoolValue(camera_handle_, "CCMEnable", ccm_enable);
+    // Fixed SDK tuning copied from Pacific; only exposure and gain stay live-tunable.
+    MV_CC_SetFloatValue(camera_handle_, "AcquisitionFrameRate", 250.000f);
+    MV_CC_SetBoolValue(camera_handle_, "ColorTransformationEnable", true);
+    MV_CC_SetFloatValue(camera_handle_, "Gamma", 7.5f);
+    MV_CC_SetBoolValue(camera_handle_, "CCMEnable", false);
 
     MV_CC_GetFloatValue(camera_handle_, "Gain", &float_value);
     param_desc.description = "Gain";
@@ -254,16 +240,10 @@ rcl_interfaces::msg::SetParametersResult HikCameraNode::parametersCallback(
             status = MV_CC_SetFloatValue(camera_handle_, "ExposureTime", static_cast<float>(param.as_double()));
         } else if (param.get_name() == "gain") {
             status = MV_CC_SetFloatValue(camera_handle_, "Gain", static_cast<float>(param.as_double()));
-        } else if (param.get_name() == "acquisition_frame_rate") {
-            status = MV_CC_SetFloatValue(camera_handle_, "AcquisitionFrameRate", static_cast<float>(param.as_double()));
-        } else if (param.get_name() == "color_transformation_enable") {
-            status = MV_CC_SetBoolValue(camera_handle_, "ColorTransformationEnable", param.as_bool());
-        } else if (param.get_name() == "gamma") {
-            status = MV_CC_SetFloatValue(camera_handle_, "Gamma", static_cast<float>(param.as_double()));
-        } else if (param.get_name() == "ccm_enable") {
-            status = MV_CC_SetBoolValue(camera_handle_, "CCMEnable", param.as_bool());
         } else {
-            continue;
+            result.successful = false;
+            result.reason = "Unknown camera parameter: " + param.get_name();
+            break;
         }
 
         if (status != MV_OK) {

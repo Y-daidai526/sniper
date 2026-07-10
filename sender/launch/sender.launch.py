@@ -11,7 +11,6 @@ def generate_launch_description():
     sender_node = Node(
         package="sender",
         executable="sender_node",
-        name="sender_node",
         parameters=[str(config_file)],
         output="screen",
         emulate_tty=True,

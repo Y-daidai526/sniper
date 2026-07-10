@@ -13,8 +13,7 @@
   <depend>rclpy</depend>
   <exec_depend>ament_index_python</exec_depend>
 
-  <!-- pip dependencies are listed in requirements.txt. -->
-  <!-- paho-mqtt, av, opencv-python -->
+  <!-- Runtime Python dependencies are installed via apt; amqtt is only needed for sender debug broker. -->
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

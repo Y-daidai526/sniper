@@ -10,16 +10,10 @@ sender_runtime:
 
 hik_camera:
   ros__parameters:
-    image_topic: "image_raw"
-    frame_id: "camera_optical_frame"
-    camera_name: "narrow_stereo"
     use_sensor_data_qos: true
-    acquisition_frame_rate: 250.0
     exposure_time: 12000.0
     gain: 10.0
-    color_transformation_enable: true
-    gamma: 7.5
-    ccm_enable: false
+    camera_name: "narrow_stereo"
     camera_info_url: ""
 
 video_encoder:
@@ -38,13 +32,15 @@ video_encoder:
     motion_threshold: 14
     motion_erode_px: 2
     motion_dilate_px: 6
-    motion_trail_frames: 90
+    motion_trail_frames: 15
     trail_disable_motion_ratio: 0.30
     bg_update_alpha: 0.01
     bg_blur_sigma: 1.8
     center_clear_size: 150
     force_monochrome: false
 
+    bandwidth_limit_kbytes: 14.0
+    bandwidth_window_s: 2.0
     serial_max_rate_hz: 50.0
     max_tx_delay_s: 1.0
 

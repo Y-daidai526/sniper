@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import queue
-import sys
 import threading
 from pathlib import Path
 
@@ -9,13 +8,14 @@ import av
 import cv2
 import rclpy
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 
 from .mqtt_client import MqttReceiver
 from .stats_tracker import StatsTracker
 
 
-def _required_param(node: Node, name: str):
-    node.declare_parameter(name)
+def _required_param(node: Node, name: str, param_type: Parameter.Type):
+    node.declare_parameter(name, param_type)
     value = node.get_parameter(name).value
     if value is None:
         raise RuntimeError(f"missing required parameter: {name}")
@@ -23,46 +23,33 @@ def _required_param(node: Node, name: str):
 
 
 def _required_string(node: Node, name: str) -> str:
-    value = str(_required_param(node, name))
+    value = str(_required_param(node, name, Parameter.Type.STRING))
     if not value:
         raise RuntimeError(f"required parameter is empty: {name}")
     return value
-
-
-def _choose_runtime(local_host: str, match_host: str, local_client_id: str) -> tuple[str, str]:
-    while True:
-        choice = input("Select receiver mode [local/match] (default: local): ").strip().lower()
-        if choice in ("", "local", "l"):
-            return local_host, local_client_id
-        if choice in ("match", "m"):
-            robot_id = input("Robot ID / MQTT client id: ").strip()
-            if robot_id:
-                return match_host, robot_id
-            print("Robot ID cannot be empty in match mode.", file=sys.stderr)
-        else:
-            print("Please enter 'local' or 'match'.", file=sys.stderr)
 
 
 class VideoDecoderNode(Node):
     def __init__(self):
         super().__init__("video_decoder")
 
-        local_host = _required_string(self, "local_broker_host")
-        match_host = _required_string(self, "match_broker_host")
-        local_client_id = _required_string(self, "local_client_id")
-        broker_host, client_id = _choose_runtime(local_host, match_host, local_client_id)
-
-        broker_port = int(_required_param(self, "broker_port"))
+        # Runtime selection is intentionally config-only; change YAML for local or match use.
+        broker_host = _required_string(self, "broker_host")
+        client_id = _required_string(self, "client_id")
+        broker_port = int(_required_param(self, "broker_port", Parameter.Type.INTEGER))
         topic = _required_string(self, "topic")
-        mqtt_queue_size = int(_required_param(self, "mqtt_queue_size"))
-        self._display = bool(_required_param(self, "display"))
-        self._display_scale = max(1, int(_required_param(self, "display_scale")))
-        self._crosshair_x = int(_required_param(self, "crosshair_offset_x"))
-        self._crosshair_y = int(_required_param(self, "crosshair_offset_y"))
-        self._crosshair_w = max(1, int(_required_param(self, "crosshair_width")))
-        stats_interval_s = float(_required_param(self, "stats_interval_s"))
-        self._debug_dump_enable = bool(_required_param(self, "debug_dump_enable"))
-        self._debug_dump_every_n_frames = max(1, int(_required_param(self, "debug_dump_every_n_frames")))
+        mqtt_queue_size = int(_required_param(self, "mqtt_queue_size", Parameter.Type.INTEGER))
+        self._display = bool(_required_param(self, "display", Parameter.Type.BOOL))
+        self._display_scale = max(1, int(_required_param(self, "display_scale", Parameter.Type.INTEGER)))
+        self._crosshair_x = int(_required_param(self, "crosshair_offset_x", Parameter.Type.INTEGER))
+        self._crosshair_y = int(_required_param(self, "crosshair_offset_y", Parameter.Type.INTEGER))
+        self._crosshair_w = max(1, int(_required_param(self, "crosshair_width", Parameter.Type.INTEGER)))
+        stats_interval_s = float(_required_param(self, "stats_interval_s", Parameter.Type.DOUBLE))
+        self._debug_dump_enable = bool(_required_param(self, "debug_dump_enable", Parameter.Type.BOOL))
+        self._debug_dump_every_n_frames = max(
+            1,
+            int(_required_param(self, "debug_dump_every_n_frames", Parameter.Type.INTEGER)),
+        )
         self._debug_dump_dir = Path(_required_string(self, "debug_dump_dir")) / "receiver"
         self._display_frame_counter = 0
 
@@ -103,7 +90,7 @@ class VideoDecoderNode(Node):
                 break
 
             seq = data[0]
-            h264_slice = data[1:]
+            h264_slice = data[1:]  # 299B Annex-B chunk from the 0x0310 data field.
             status = self._stats.record(seq, len(h264_slice))
             if status.duplicate:
                 continue

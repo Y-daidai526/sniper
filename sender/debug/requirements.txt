@@ -1,2 +1,0 @@
-paho-mqtt>=2.0
-amqtt>=0.11

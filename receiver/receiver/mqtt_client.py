@@ -8,6 +8,12 @@ import paho.mqtt.client as mqtt
 from .proto import CustomByteBlock_pb2
 
 
+def _create_mqtt_client(client_id: str):
+    if hasattr(mqtt, "CallbackAPIVersion"):
+        return mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=client_id)
+    return mqtt.Client(client_id=client_id)
+
+
 class MqttReceiver:
     FRAME_SIZE = 300
 
@@ -17,7 +23,7 @@ class MqttReceiver:
         self._port = broker_port
         self._topic = topic
         self._queue: queue.Queue[bytes] = queue.Queue(maxsize=max_queue)
-        self._client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=client_id)
+        self._client = _create_mqtt_client(client_id)
         self._connected = False
 
         self._client.on_connect = self._on_connect
@@ -47,7 +53,7 @@ class MqttReceiver:
     def connected(self) -> bool:
         return self._connected
 
-    def _on_connect(self, client, userdata, flags, reason_code, properties) -> None:
+    def _on_connect(self, client, userdata, flags, reason_code, properties=None) -> None:
         if int(reason_code) == 0:
             self._connected = True
             client.subscribe(self._topic, qos=0)
@@ -59,7 +65,8 @@ class MqttReceiver:
             self._connected = False
             print(f"[mqtt] connect rejected: reason_code={reason_code}", file=sys.stderr)
 
-    def _on_disconnect(self, client, userdata, flags, reason_code, properties) -> None:
+    def _on_disconnect(self, client, userdata, *args) -> None:
+        reason_code = args[-2] if len(args) >= 2 else args[0] if args else 0
         self._connected = False
         print(f"[mqtt] disconnected: reason_code={reason_code}", file=sys.stderr)
 

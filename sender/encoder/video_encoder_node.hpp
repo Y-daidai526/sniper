@@ -42,12 +42,18 @@ private:
     void push_frame_to_gstreamer(const cv::Mat &frame);
     void pull_stream_and_packetize();
 
+    void publish_video_stream_packets(
+        int64_t now_ns,
+        int64_t window_ns,
+        size_t window_limit_bytes,
+        size_t max_packets_this_pull);
     void publish_video_packet(const uint8_t *payload_150, int64_t timestamp_ns);
     rclcpp::SerializedMessage serialize_video_packet(
         uint64_t sequence_id,
         uint64_t timestamp_ns,
         const uint8_t *payload_150) const;
     void emit_serial_packets(int64_t now_ns);
+    void clip_video_stream_backlog();
     void clip_serial_backlog();
 
     void display_loop();
@@ -62,6 +68,7 @@ private:
 
     std::vector<uint8_t> ros2_stream_buffer_;
     std::vector<uint8_t> serial_stream_buffer_;
+    std::deque<std::pair<int64_t, size_t>> sent_window_;
     std::mutex buffer_mutex_;
     SerialDataCallback serial_data_cb_;
 
@@ -72,9 +79,12 @@ private:
     int64_t next_serial_tx_ns_ = 0;
     int64_t last_telemetry_ns_ = 0;
     uint64_t serial_dropped_bytes_ = 0;
+    uint64_t video_stream_dropped_bytes_ = 0;
     uint32_t serial_drop_events_ = 0;
+    uint32_t video_stream_drop_events_ = 0;
     uint64_t serial_packets_sent_ = 0;
     uint64_t ros2_packets_sent_ = 0;
+    size_t sent_window_bytes_ = 0;
 
     std::thread display_thread_;
     std::atomic<bool> display_running_{false};
@@ -108,6 +118,8 @@ private:
     double param_bg_blur_sigma_ = 1.8;
     int param_center_clear_size_ = 150;
     bool param_force_monochrome_ = false;
+    double param_bandwidth_limit_kbytes_ = 7.0;
+    double param_bandwidth_window_s_ = 2.0;
     double param_serial_max_rate_hz_ = 50.0;
     double param_max_tx_delay_s_ = 1.0;
     bool param_enable_display_ = true;

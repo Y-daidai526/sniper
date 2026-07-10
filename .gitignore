@@ -23,3 +23,5 @@ sniper_debug_imgs/
 # OS
 .DS_Store
 Thumbs.db
+
+MvSdkLog/
