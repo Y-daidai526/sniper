@@ -769,13 +769,48 @@ void VideoEncoderNode::clip_serial_backlog() {
 }
 
 void VideoEncoderNode::display_loop() {
-    cv::namedWindow("Sniper Raw", cv::WINDOW_NORMAL);
-    cv::namedWindow("Sniper ROI", cv::WINDOW_NORMAL);
-    cv::namedWindow("Sniper Static", cv::WINDOW_NORMAL);
-    cv::namedWindow("Sniper Encoder", cv::WINDOW_NORMAL);
-    cv::resizeWindow("Sniper ROI", param_output_size_, param_output_size_);
-    cv::resizeWindow("Sniper Static", param_output_size_, param_output_size_);
-    cv::resizeWindow("Sniper Encoder", param_output_size_, param_output_size_);
+    constexpr const char *kWindowName = "Sniper Sender";
+    cv::namedWindow(kWindowName, cv::WINDOW_NORMAL);
+    cv::resizeWindow(kWindowName, param_output_size_ * 2, param_output_size_ * 2);
+
+    const auto render_tile = [this](
+                                 const cv::Mat &source,
+                                 const char *label,
+                                 cv::Mat &tile) {
+        tile = cv::Mat::zeros(param_output_size_, param_output_size_, CV_8UC3);
+        if (!source.empty()) {
+            cv::Mat color_source;
+            if (source.channels() == 1) {
+                cv::cvtColor(source, color_source, cv::COLOR_GRAY2BGR);
+            } else if (source.channels() == 4) {
+                cv::cvtColor(source, color_source, cv::COLOR_BGRA2BGR);
+            } else {
+                color_source = source;
+            }
+
+            const double scale = std::min(
+                static_cast<double>(param_output_size_) / color_source.cols,
+                static_cast<double>(param_output_size_) / color_source.rows);
+            const cv::Size fitted_size(
+                std::max(1, static_cast<int>(color_source.cols * scale)),
+                std::max(1, static_cast<int>(color_source.rows * scale)));
+            cv::Mat fitted;
+            cv::resize(color_source, fitted, fitted_size, 0.0, 0.0, cv::INTER_AREA);
+            const int x = (param_output_size_ - fitted.cols) / 2;
+            const int y = (param_output_size_ - fitted.rows) / 2;
+            fitted.copyTo(tile(cv::Rect(x, y, fitted.cols, fitted.rows)));
+        }
+
+        cv::putText(
+            tile,
+            label,
+            cv::Point(10, 26),
+            cv::FONT_HERSHEY_SIMPLEX,
+            0.65,
+            cv::Scalar(255, 255, 255),
+            2,
+            cv::LINE_AA);
+    };
 
     while (display_running_ && rclcpp::ok()) {
         cv::Mat raw_frame;
@@ -798,27 +833,28 @@ void VideoEncoderNode::display_loop() {
             }
         }
 
-        if (!raw_frame.empty()) {
-            cv::imshow("Sniper Raw", raw_frame);
-        }
-        if (!roi_frame.empty()) {
-            cv::imshow("Sniper ROI", roi_frame);
-        }
-        if (!static_frame.empty()) {
-            cv::imshow("Sniper Static", static_frame);
-        }
-        if (!frame.empty()) {
-            cv::imshow("Sniper Encoder", frame);
-        }
+        cv::Mat raw_tile;
+        cv::Mat roi_tile;
+        cv::Mat static_tile;
+        cv::Mat encoder_tile;
+        render_tile(raw_frame, "Raw", raw_tile);
+        render_tile(roi_frame, "ROI", roi_tile);
+        render_tile(static_frame, "Static", static_tile);
+        render_tile(frame, "Encoder", encoder_tile);
+
+        cv::Mat top_row;
+        cv::Mat bottom_row;
+        cv::Mat dashboard;
+        cv::hconcat(raw_tile, roi_tile, top_row);
+        cv::hconcat(static_tile, encoder_tile, bottom_row);
+        cv::vconcat(top_row, bottom_row, dashboard);
+        cv::imshow(kWindowName, dashboard);
 
         cv::waitKey(1);
         std::this_thread::sleep_for(std::chrono::milliseconds(16));
     }
 
-    cv::destroyWindow("Sniper Raw");
-    cv::destroyWindow("Sniper ROI");
-    cv::destroyWindow("Sniper Static");
-    cv::destroyWindow("Sniper Encoder");
+    cv::destroyWindow(kWindowName);
 }
 
 } // namespace sniper::encoder
