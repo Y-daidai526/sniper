@@ -4,7 +4,6 @@
 
 import sys
 import time
-from pathlib import Path
 
 import paho.mqtt.client as mqtt
 
@@ -16,10 +15,25 @@ TOPIC = "CustomByteBlock"
 QOS = 1
 
 
-# Reuse the exact protobuf implementation used by receiver without importing ROS.
-REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "receiver"))
-from receiver.proto import CustomByteBlock_pb2  # noqa: E402
+def decode_custom_byte_block(payload: bytes) -> bytes:
+    if not payload or payload[0] != 0x0A:
+        raise ValueError("expected bytes field 1")
+
+    size = 0
+    shift = 0
+    offset = 1
+    while offset < len(payload) and shift < 35:
+        byte = payload[offset]
+        offset += 1
+        size |= (byte & 0x7F) << shift
+        if byte < 0x80:
+            end = offset + size
+            if end != len(payload):
+                raise ValueError("invalid data length")
+            return payload[offset:end]
+        shift += 7
+
+    raise ValueError("invalid data length varint")
 
 
 class SequenceMonitor:
@@ -97,13 +111,7 @@ def on_disconnect(client, userdata, disconnect_flags, reason_code, properties):
 
 def on_message(client, userdata, msg):
     try:
-        block = CustomByteBlock_pb2.CustomByteBlock()
-        block.ParseFromString(msg.payload)
-        if not block.HasField("data"):
-            print("[mqtt] ignore message without data field", file=sys.stderr)
-            return
-
-        data = bytes(block.data)
+        data = decode_custom_byte_block(msg.payload)
         if len(data) != 300:
             print(
                 f"[mqtt] ignore CustomByteBlock data size {len(data)}, expected 300",
