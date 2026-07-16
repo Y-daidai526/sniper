@@ -136,12 +136,11 @@ H264 主链路 299B 分片
 系统依赖写在 `README.md`。Python 依赖优先用 apt：
 
 ```text
-python3-paho-mqtt
 python3-av
 python3-opencv
 ```
 
-`amqtt` 只用于 sender local_test 内置 MQTT broker。它可能需要 pip 安装，README 里记录了 Debian/Ubuntu externally-managed Python 的处理方式。
+MQTT 客户端固定使用 `paho-mqtt 2.1.0` 和 callback API v2，通过 pip 安装。`amqtt` 只用于 sender local_test 内置 MQTT broker。README 里记录了 Debian/Ubuntu externally-managed Python 的处理方式。
 
 不要新增 `requirements.txt`，除非项目策略明确改变。
 
@@ -628,7 +627,7 @@ receiver 通过 `_required_param()` 声明并读取参数。缺少 config 参数
 
 ### MQTT 接收
 
-`MqttReceiver` 使用 `paho-mqtt`。
+`MqttReceiver` 使用 `paho-mqtt 2.1.0` callback API v2，不兼容旧版 callback API。
 
 连接行为：
 

@@ -10,12 +10,6 @@ import paho.mqtt.client as mqtt
 from proto import CustomByteBlock_pb2
 
 
-def _create_mqtt_client():
-    if hasattr(mqtt, "CallbackAPIVersion"):
-        return mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-    return mqtt.Client()
-
-
 class EmbeddedBroker:
     def __init__(self, host: str, port: int):
         self._host = host
@@ -97,7 +91,9 @@ class MqttPublisher:
         self._port = port
         self._topic = topic
         self._broker = EmbeddedBroker(host, port) if start_broker else None
-        self._client = _create_mqtt_client()
+        self._client = mqtt.Client(
+            callback_api_version=mqtt.CallbackAPIVersion.VERSION2
+        )
         self._connected = False
 
     def connect(self) -> bool:

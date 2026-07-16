@@ -9,21 +9,22 @@ sudo apt install -y \
   libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
   gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
   gstreamer1.0-tools libopencv-dev \
-  python3-pip python3-paho-mqtt python3-av python3-opencv
+  python3-pip python3-av python3-opencv
 ```
 
 安装海康 MVS SDK，并确认 `/opt/MVS/include` 和 `/opt/MVS/lib/64` 存在。
 
-`amqtt` 用于 sender local_test 内置 MQTT broker：
+MQTT 客户端统一使用 `paho-mqtt 2.1.0`。`amqtt` 用于 sender local_test 内置 MQTT broker：
 
 ```bash
-python3 -m pip install --break-system-packages amqtt
+python3 -m pip install --break-system-packages paho-mqtt==2.1.0 amqtt
 ```
 
 如果 pip 被系统自带 `PyYAML` 卡住：
 
 ```bash
 python3 -m pip install --break-system-packages --ignore-installed PyYAML amqtt
+python3 -m pip install --break-system-packages paho-mqtt==2.1.0
 ```
 
 ## 2. 配置 sender

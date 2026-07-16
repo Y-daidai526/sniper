@@ -22,17 +22,6 @@ sys.path.insert(0, str(REPO_ROOT / "receiver"))
 from receiver.proto import CustomByteBlock_pb2  # noqa: E402
 
 
-def create_mqtt_client():
-    if hasattr(mqtt, "CallbackAPIVersion"):
-        return mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=CLIENT_ID)
-    return mqtt.Client(client_id=CLIENT_ID)
-
-
-def mqtt_reason_failed(reason_code) -> bool:
-    """Handle integer reason codes from v1 and ReasonCode objects from v2."""
-    return getattr(reason_code, "value", reason_code) != 0
-
-
 class SequenceMonitor:
     def __init__(self):
         self.last_seq = None
@@ -86,7 +75,7 @@ monitor = SequenceMonitor()
 
 
 def on_connect(client, userdata, flags, reason_code, properties=None):
-    if mqtt_reason_failed(reason_code):
+    if reason_code.is_failure:
         print(f"[mqtt] connect rejected: reason_code={reason_code}", file=sys.stderr)
         return
 
@@ -102,8 +91,7 @@ def on_connect(client, userdata, flags, reason_code, properties=None):
     )
 
 
-def on_disconnect(client, userdata, *args):
-    reason_code = args[-2] if len(args) >= 2 else args[0] if args else 0
+def on_disconnect(client, userdata, disconnect_flags, reason_code, properties):
     print(f"[mqtt] disconnected: reason_code={reason_code}", file=sys.stderr)
 
 
@@ -129,7 +117,10 @@ def on_message(client, userdata, msg):
 
 
 def main() -> int:
-    client = create_mqtt_client()
+    client = mqtt.Client(
+        callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
+        client_id=CLIENT_ID,
+    )
     client.on_connect = on_connect
     client.on_disconnect = on_disconnect
     client.on_message = on_message
