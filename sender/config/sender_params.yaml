@@ -30,8 +30,6 @@ video_encoder:
   ros__parameters:
     # 编码器订阅的相机图像话题。
     input_topic: "/image_raw"
-    # 可选 Pacific 旧解码器兼容话题。
-    video_stream_topic: "/video_stream"
 
     # 缩放前的中心裁剪尺寸。
     crop_size: 800
@@ -42,9 +40,7 @@ video_encoder:
     # 编码器 x264 目标码率，单位 kbit/s。
     target_bitrate: 120
     # 编码器 x264 速度预设，越慢通常压缩效果越好但更吃 CPU。
-    x264_preset: "medium"
-    # 是否启用可选的 /video_stream 兼容发布。
-    enable_video_stream: true
+    x264_preset: "ultrafast"
 
     # 是否简化静态背景以降低码率。
     static_simplify: true
@@ -67,10 +63,6 @@ video_encoder:
     # 编码前是否强制转为灰度图。
     force_monochrome: false
 
-    # /video_stream 兼容链路限速，单位 kB/s。
-    bandwidth_limit_kbytes: 14.0
-    # /video_stream 限速统计窗口，单位秒。
-    bandwidth_window_s: 2.0
     # 0x0310 串口和本地测试链路最大发包率。
     serial_max_rate_hz: 50.0
     # 编码 backlog 最大延迟，超过后丢弃旧 H264 数据。

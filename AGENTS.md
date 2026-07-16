@@ -9,12 +9,13 @@
 ```text
 sender/                  机器人端，ROS2 C++
 receiver/                操作手端，ROS2 Python
-Pacific_doorlock_sniper/ 参考工程和可选旧解码器验证来源
+Pacific_doorlock_sniper/ 参考工程
 docs/                    RoboMaster 通信协议 PDF
-start.sh                 单端构建并运行脚本
+sender/start.sh           sender 独立构建并运行脚本
+receiver/start.sh         receiver 独立构建并运行脚本
 ```
 
-`Pacific_doorlock_sniper/` 只作为参考来源和旧解码器验证来源。当前主链路由 `sender/` 和 `receiver/` 完成。
+`Pacific_doorlock_sniper/` 只作为参考来源。当前链路由 `sender/` 和 `receiver/` 完成。
 
 主链路：
 
@@ -37,29 +38,20 @@ receiver
     -> OpenCV 显示
 ```
 
-可选兼容调试链路：
-
-```text
-sender
-  同一份 H264 Annex-B 输出
-    -> 150B 分包
-    -> 手写 CDR，类型名 doorlock_sniper/msg/VideoPacket
-    -> ROS2 GenericPublisher 发布 /video_stream
-    -> Pacific 旧 decoder 验证画面
-```
-
 ## 构建和运行
 
 推荐入口：
 
 ```bash
-./start.sh sender
-./start.sh receiver
+./sender/start.sh
+./receiver/start.sh
 ```
 
-`./start.sh sender` 只构建 `sender`，source 根目录 `install/setup.bash`，然后运行 `ros2 launch sender sender.launch.py`。
+`./sender/start.sh` 不接收参数。脚本先切换到 `sender/`，只构建 `sender`，source `sender/install/setup.bash`，然后运行 `ros2 launch sender sender.launch.py`。
 
-`./start.sh receiver` 只构建 `receiver`，source 根目录 `install/setup.bash`，然后运行 `ros2 launch receiver receiver.launch.py`。
+`./receiver/start.sh` 不接收参数。脚本先切换到 `receiver/`，只构建 `receiver`，source `receiver/install/setup.bash`，然后运行 `ros2 launch receiver receiver.launch.py`。
+
+两个脚本分别使用包目录下的 `build/`、`install/` 和 `log/`，互不共用构建产物。
 
 手动运行：
 
@@ -82,15 +74,19 @@ launch 不写业务参数默认值，不覆盖业务参数。
 config 文件查找规则：
 
 ```text
-优先读取当前工作目录下的源码配置：
+在包目录运行时，优先读取：
+  config/sender_params.yaml
+  config/receiver_params.yaml
+
+在仓库根目录手动运行时，读取：
   sender/config/sender_params.yaml
   receiver/config/receiver_params.yaml
 
 如果源码配置不存在，再退回 install share 配置：
-  install/*/share/*/config/*.yaml
+  <当前工作空间>/install/*/share/*/config/*.yaml
 ```
 
-这样在仓库根目录运行时，改源码 config 就是改实际运行配置。启动日志会打印 `sender config: ...` 或 `receiver config: ...`。
+这样使用独立脚本或在仓库根目录手动运行时，改源码 config 都是改实际运行配置。启动日志会打印 `sender config: ...` 或 `receiver config: ...`。
 
 ## 配置原则
 
@@ -128,7 +124,6 @@ local_test 从 stdin 读取 309B 帧时直接写 309。
 0x0310 帧格式常量
 CRC8/CRC16 多项式
 H264 主链路 299B 分片
-/video_stream 150B 兼容分片
 ```
 
 ## 依赖策略
@@ -240,13 +235,11 @@ local_test_mqtt_topic
 
 ```text
 input_topic
-video_stream_topic
 crop_size
 output_size
 output_fps
 target_bitrate
 x264_preset
-enable_video_stream
 static_simplify
 motion_threshold
 motion_erode_px
@@ -257,8 +250,6 @@ bg_update_alpha
 bg_blur_sigma
 center_clear_size
 force_monochrome
-bandwidth_limit_kbytes
-bandwidth_window_s
 serial_max_rate_hz
 max_tx_delay_s
 enable_display
@@ -341,11 +332,10 @@ target_bitrate <= 80
 
 低码率模式使用 repeat headers、B 帧、lookahead、AQ、mbtree 等参数，目标是保住低带宽画面质量。
 
-appsink 输出的 H264 Annex-B 字节进入两个独立 buffer：
+appsink 输出的 H264 Annex-B 字节通过 callback 交给发送线程的 buffer：
 
 ```text
-SerialSendWorker::stream_buffer_        0x0310 主链路
-VideoEncoderNode::ros2_stream_buffer_   /video_stream 兼容调试链路
+VideoEncoderNode -> SerialSendWorker::stream_buffer_
 ```
 
 主链路分包：
@@ -359,57 +349,15 @@ VideoEncoderNode::ros2_stream_buffer_   /video_stream 兼容调试链路
 
 不补零，不重复旧包。H264 不足 299B 时发送线程等待新数据。每次最多发送一包，调度延迟后不突发补发。
 
-`/video_stream` 兼容分包：
-
-```text
-ros2_stream_buffer_ 至少有 150B，且带宽窗口允许时：
-  发布一个 VideoPacket-compatible CDR sample
-```
-
-主链路由独立发送线程按 `serial_max_rate_hz` 限速，最大 50Hz，不再依赖图像回调频率。`/video_stream` 由 `bandwidth_limit_kbytes` 和 `bandwidth_window_s` 控制，不反向影响主链路。
+发送链路由独立线程按 `serial_max_rate_hz` 限速，最大 50Hz，不依赖图像回调频率。
 
 backlog 裁剪：
 
 ```text
 serial max backlog = serial_max_rate_hz * 299B * max_tx_delay_s
-topic max backlog  = bandwidth_limit_kbytes * 1000 * max_tx_delay_s
 ```
 
 超过 backlog 后丢旧 H264，并尽量对齐到后续 Annex-B start code。
-
-### /video_stream 兼容发布
-
-用途：用 Pacific 旧解码器验证 sender 编码链路。
-
-实现：
-
-```text
-rclcpp::GenericPublisher
-topic = video_stream_topic
-type  = doorlock_sniper/msg/VideoPacket
-QoS   = KeepLast(3000).reliable()
-```
-
-手写 CDR 当前布局：
-
-```text
-offset  size  field
-0       4     CDR encapsulation header: 00 01 00 00
-4       8     sequence_id, uint64 little-endian
-12      8     timestamp_ns, uint64 little-endian
-20      150   payload bytes
-```
-
-`SerializedMessage` 分配容量是 172B，但实际 `buffer_length` 是写入长度 170B。
-
-启用条件：
-
-```text
-enable_video_stream=true
-运行环境能创建 doorlock_sniper/msg/VideoPacket type support
-```
-
-缺 type support 或发布失败时，只禁用 `/video_stream` 兼容发布，不影响 0x0310 串口和 local_test/MQTT 主链路。
 
 ### 串口
 
@@ -479,7 +427,7 @@ local_test 日志只保留异常和状态：
 
 ### sender stats
 
-sender 统计约 1 秒打印一次。serial stats 的间隔和计数在 `SerialSendWorker::run()`，topic stats 的间隔和计数在 `VideoEncoderNode::pull_stream_and_packetize()`。
+sender 统计约 1 秒打印一次。统计间隔和计数在 `SerialSendWorker::run()`。
 
 串口 stats logger：
 
@@ -503,20 +451,6 @@ drops     累计 serial backlog 裁剪事件数
 backlog   当前 SerialSendWorker::stream_buffer_ 字节数
 port      当前串口路径、disconnected、disabled 或 unknown
 ```
-
-topic stats logger：
-
-```text
-topic stats
-```
-
-格式：
-
-```text
-[INFO] [topic stats]: rate=90.0pkt/s data=13.50kB/s packets=4321 drops=0 backlog=120B
-```
-
-只有 `/video_stream` GenericPublisher 实际启用时才打印 `[topic stats]`。
 
 sender stats 不打印 `errors` 字段。
 
@@ -742,7 +676,6 @@ sender 配置文件路径
 receiver 配置文件路径
 start.sh 用法
 手动 colcon/ros2 launch 命令
-/video_stream 旧解码器验证命令
 MQTTX 连接基础信息
 ```
 

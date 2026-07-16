@@ -6,16 +6,11 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
-#include <cmath>
 #include <cstring>
 
 namespace sniper::encoder {
 
 namespace {
-constexpr size_t kVideoPacketPayloadBytes = 150;
-constexpr size_t kCdrHeaderBytes = 4;
-constexpr size_t kSerializedVideoPacketBytes = 172;
-
 bool require_bool_parameter(rclcpp::Node &node, const std::string &name) {
     node.declare_parameter(name, rclcpp::ParameterType::PARAMETER_BOOL);
     return node.get_parameter(name).as_bool();
@@ -36,46 +31,16 @@ std::string require_string_parameter(rclcpp::Node &node, const std::string &name
     return node.get_parameter(name).as_string();
 }
 
-void write_u64_le(std::array<uint8_t, kSerializedVideoPacketBytes> &bytes, size_t &offset, uint64_t value) {
-    for (size_t i = 0; i < 8; ++i) {
-        bytes[offset + i] = static_cast<uint8_t>((value >> (8 * i)) & 0xFFU);
-    }
-    offset += 8;
-}
-
-void append_bytes(std::vector<uint8_t> &buffer, const uint8_t *data, size_t size) {
-    const size_t old_size = buffer.size();
-    buffer.resize(old_size + size);
-    std::memcpy(buffer.data() + old_size, data, size);
-}
-
-void erase_front(std::vector<uint8_t> &buffer, size_t count) {
-    buffer.erase(buffer.begin(), buffer.begin() + static_cast<std::ptrdiff_t>(count));
-}
-
-size_t align_drop_to_annexb_start(const std::vector<uint8_t> &buffer, size_t target_drop) {
-    for (size_t i = target_drop; i + 4 < buffer.size(); ++i) {
-        const bool start_code_3 = buffer[i] == 0 && buffer[i + 1] == 0 && buffer[i + 2] == 1;
-        const bool start_code_4 =
-            buffer[i] == 0 && buffer[i + 1] == 0 && buffer[i + 2] == 0 && buffer[i + 3] == 1;
-        if (start_code_3 || start_code_4) {
-            return i;
-        }
-    }
-    return target_drop;
-}
 } // namespace
 
 VideoEncoderNode::VideoEncoderNode(const rclcpp::NodeOptions &options)
     : Node("video_encoder", options) {
     param_input_topic_ = require_string_parameter(*this, "input_topic");
-    param_video_stream_topic_ = require_string_parameter(*this, "video_stream_topic");
     param_crop_size_ = require_int_parameter(*this, "crop_size");
     param_output_size_ = require_int_parameter(*this, "output_size");
     param_output_fps_ = require_int_parameter(*this, "output_fps");
     param_target_bitrate_ = require_int_parameter(*this, "target_bitrate");
     param_x264_preset_ = require_string_parameter(*this, "x264_preset");
-    param_enable_video_stream_ = require_bool_parameter(*this, "enable_video_stream");
     param_static_simplify_ = require_bool_parameter(*this, "static_simplify");
     param_motion_threshold_ = require_int_parameter(*this, "motion_threshold");
     param_motion_erode_px_ = require_int_parameter(*this, "motion_erode_px");
@@ -86,8 +51,6 @@ VideoEncoderNode::VideoEncoderNode(const rclcpp::NodeOptions &options)
     param_bg_blur_sigma_ = require_double_parameter(*this, "bg_blur_sigma");
     param_center_clear_size_ = require_int_parameter(*this, "center_clear_size");
     param_force_monochrome_ = require_bool_parameter(*this, "force_monochrome");
-    param_bandwidth_limit_kbytes_ = require_double_parameter(*this, "bandwidth_limit_kbytes");
-    param_bandwidth_window_s_ = require_double_parameter(*this, "bandwidth_window_s");
     param_serial_max_rate_hz_ = require_double_parameter(*this, "serial_max_rate_hz");
     param_max_tx_delay_s_ = require_double_parameter(*this, "max_tx_delay_s");
     param_enable_display_ = require_bool_parameter(*this, "enable_display");
@@ -111,14 +74,6 @@ VideoEncoderNode::VideoEncoderNode(const rclcpp::NodeOptions &options)
     param_motion_erode_px_ = std::clamp(param_motion_erode_px_, 0, 20);
     param_motion_dilate_px_ = std::clamp(param_motion_dilate_px_, 0, 20);
     param_bg_update_alpha_ = std::clamp(param_bg_update_alpha_, 0.001, 0.2);
-    if (param_bandwidth_limit_kbytes_ < 1.0) {
-        RCLCPP_WARN(this->get_logger(), "bandwidth_limit_kbytes=%.2f too low, clamped to 1.0", param_bandwidth_limit_kbytes_);
-        param_bandwidth_limit_kbytes_ = 1.0;
-    }
-    if (param_bandwidth_window_s_ < 0.2) {
-        RCLCPP_WARN(this->get_logger(), "bandwidth_window_s=%.2f too low, clamped to 0.2", param_bandwidth_window_s_);
-        param_bandwidth_window_s_ = 0.2;
-    }
     if (param_serial_max_rate_hz_ <= 0.0 || param_serial_max_rate_hz_ > 50.0) {
         RCLCPP_WARN(this->get_logger(), "serial_max_rate_hz=%.2f invalid, clamped to 50", param_serial_max_rate_hz_);
         param_serial_max_rate_hz_ = 50.0;
@@ -132,25 +87,6 @@ VideoEncoderNode::VideoEncoderNode(const rclcpp::NodeOptions &options)
         rclcpp::SensorDataQoS(),
         std::bind(&VideoEncoderNode::image_callback, this, std::placeholders::_1));
 
-    if (param_enable_video_stream_) {
-        try {
-            video_packet_pub_ = this->create_generic_publisher(
-                param_video_stream_topic_,
-                "doorlock_sniper/msg/VideoPacket",
-                rclcpp::QoS(rclcpp::KeepLast(3000)).reliable());
-            RCLCPP_INFO(
-                this->get_logger(),
-                "VideoPacket compatibility publisher enabled: topic=%s type=doorlock_sniper/msg/VideoPacket",
-                param_video_stream_topic_.c_str());
-        } catch (const std::exception &e) {
-            RCLCPP_WARN(
-                this->get_logger(),
-                "VideoPacket compatibility publisher disabled: missing doorlock_sniper/msg/VideoPacket type support or incompatible ROS environment (%s). 0x0310 serial/local_test/MQTT path is still enabled.",
-                e.what());
-            param_enable_video_stream_ = false;
-        }
-    }
-
     initialize_gstreamer();
 
     if (param_enable_display_) {
@@ -160,14 +96,13 @@ VideoEncoderNode::VideoEncoderNode(const rclcpp::NodeOptions &options)
 
     RCLCPP_INFO(
         this->get_logger(),
-        "VideoEncoderNode ready: crop=%d output=%dx%d@%dfps bitrate=%dkbps serial=%.2fHz video_topic=%s",
+        "VideoEncoderNode ready: crop=%d output=%dx%d@%dfps bitrate=%dkbps serial=%.2fHz",
         param_crop_size_,
         param_output_size_,
         param_output_size_,
         param_output_fps_,
         param_target_bitrate_,
-        param_serial_max_rate_hz_,
-        param_video_stream_topic_.c_str());
+        param_serial_max_rate_hz_);
 }
 
 VideoEncoderNode::~VideoEncoderNode() {
@@ -182,7 +117,6 @@ VideoEncoderNode::~VideoEncoderNode() {
 }
 
 void VideoEncoderNode::set_serial_stream_callback(SerialStreamCallback cb) {
-    std::lock_guard<std::mutex> lock(buffer_mutex_);
     serial_stream_cb_ = std::move(cb);
 }
 
@@ -273,7 +207,7 @@ void VideoEncoderNode::initialize_gstreamer() {
             "speed-preset", speed_preset,
             "tune", 0x00000004,
             "byte-stream", TRUE,
-            "key-int-max", 2 * param_output_fps_,
+            "key-int-max", 1 * param_output_fps_,
             "bframes", 0,
             "rc-lookahead", 0,
             "sync-lookahead", 0,
@@ -489,7 +423,7 @@ void VideoEncoderNode::image_callback(const sensor_msgs::msg::Image::SharedPtr m
         }
 
         push_frame_to_gstreamer(processed);
-        pull_stream_and_packetize();
+        pull_encoded_stream();
     } catch (const cv_bridge::Exception &e) {
         RCLCPP_ERROR(this->get_logger(), "cv_bridge error: %s", e.what());
     }
@@ -517,20 +451,10 @@ void VideoEncoderNode::push_frame_to_gstreamer(const cv::Mat &frame) {
     gst_buffer_unref(buffer);
 }
 
-void VideoEncoderNode::pull_stream_and_packetize() {
+void VideoEncoderNode::pull_encoded_stream() {
     if (!appsink_) {
         return;
     }
-
-    const int64_t window_ns = static_cast<int64_t>(param_bandwidth_window_s_ * 1e9);
-    const size_t window_limit_bytes = static_cast<size_t>(
-        param_bandwidth_limit_kbytes_ * 1000.0 * param_bandwidth_window_s_);
-    const double video_packets_per_frame =
-        (param_bandwidth_limit_kbytes_ * 1000.0) /
-        (static_cast<double>(kVideoPacketPayloadBytes) * static_cast<double>(param_output_fps_));
-    const size_t max_video_packets_per_pull = std::max<size_t>(
-        1,
-        static_cast<size_t>(std::ceil(video_packets_per_frame)));
 
     while (true) {
         GstSample *sample = gst_app_sink_try_pull_sample(GST_APP_SINK(appsink_), 0);
@@ -546,144 +470,13 @@ void VideoEncoderNode::pull_stream_and_packetize() {
 
         GstMapInfo map;
         if (gst_buffer_map(buffer, &map, GST_MAP_READ)) {
-            const int64_t now_ns = this->now().nanoseconds();
             if (serial_stream_cb_) {
                 serial_stream_cb_(map.data, map.size);
             }
-            std::lock_guard<std::mutex> lock(buffer_mutex_);
-
-            if (param_enable_video_stream_) {
-                append_bytes(ros2_stream_buffer_, map.data, map.size);
-            }
-
-            publish_video_stream_packets(now_ns, window_ns, window_limit_bytes, max_video_packets_per_pull);
-            clip_video_stream_backlog();
-
-            if (now_ns - last_telemetry_ns_ > 1000000000LL) {
-                const double telemetry_elapsed_s =
-                    last_telemetry_ns_ == 0 ? 0.0 : static_cast<double>(now_ns - last_telemetry_ns_) / 1e9;
-                const uint64_t ros2_delta = ros2_packets_sent_ - last_telemetry_ros2_packets_;
-                const double topic_rate_hz = telemetry_elapsed_s > 0.0
-                    ? static_cast<double>(ros2_delta) / telemetry_elapsed_s
-                    : 0.0;
-                const double topic_data_kbytes_per_s =
-                    topic_rate_hz * static_cast<double>(kVideoPacketPayloadBytes) / 1000.0;
-                if (param_enable_video_stream_ && video_packet_pub_) {
-                    RCLCPP_INFO(
-                        rclcpp::get_logger("topic stats"),
-                        "rate=%.1fpkt/s data=%.2fkB/s packets=%lu drops=%u backlog=%zuB",
-                        topic_rate_hz,
-                        topic_data_kbytes_per_s,
-                        ros2_packets_sent_,
-                        video_stream_drop_events_,
-                        ros2_stream_buffer_.size());
-                }
-                last_telemetry_ns_ = now_ns;
-                last_telemetry_ros2_packets_ = ros2_packets_sent_;
-            }
-
             gst_buffer_unmap(buffer, &map);
         }
 
         gst_sample_unref(sample);
-    }
-}
-
-void VideoEncoderNode::publish_video_stream_packets(
-    int64_t now_ns,
-    int64_t window_ns,
-    size_t window_limit_bytes,
-    size_t max_packets_this_pull) {
-    size_t packets_this_pull = 0;
-    while (param_enable_video_stream_ &&
-           packets_this_pull < max_packets_this_pull &&
-           ros2_stream_buffer_.size() >= kVideoPacketPayloadBytes) {
-        while (!sent_window_.empty() && (now_ns - sent_window_.front().first) > window_ns) {
-            sent_window_bytes_ -= sent_window_.front().second;
-            sent_window_.pop_front();
-        }
-        if (sent_window_bytes_ + kVideoPacketPayloadBytes > window_limit_bytes) {
-            break;
-        }
-
-        publish_video_packet(ros2_stream_buffer_.data(), now_ns);
-        sent_window_.emplace_back(now_ns, kVideoPacketPayloadBytes);
-        sent_window_bytes_ += kVideoPacketPayloadBytes;
-        erase_front(ros2_stream_buffer_, kVideoPacketPayloadBytes);
-        packets_this_pull++;
-    }
-}
-
-void VideoEncoderNode::publish_video_packet(const uint8_t *payload_150, int64_t timestamp_ns) {
-    if (!video_packet_pub_) {
-        return;
-    }
-
-    auto serialized = serialize_video_packet(
-        video_packet_sequence_id_++,
-        static_cast<uint64_t>(timestamp_ns),
-        payload_150);
-    try {
-        video_packet_pub_->publish(serialized);
-        ros2_packets_sent_++;
-    } catch (const std::exception &e) {
-        RCLCPP_WARN(
-            this->get_logger(),
-            "VideoPacket compatibility publisher disabled after publish failure: %s. 0x0310 serial/local_test path remains enabled.",
-            e.what());
-        video_packet_pub_.reset();
-        param_enable_video_stream_ = false;
-        ros2_stream_buffer_.clear();
-    }
-}
-
-rclcpp::SerializedMessage VideoEncoderNode::serialize_video_packet(
-    uint64_t sequence_id,
-    uint64_t timestamp_ns,
-    const uint8_t *payload_150) const {
-    std::array<uint8_t, kSerializedVideoPacketBytes> bytes{};
-
-    bytes[0] = 0x00;
-    bytes[1] = 0x01;  // CDR little-endian encapsulation.
-    bytes[2] = 0x00;
-    bytes[3] = 0x00;
-
-    size_t offset = kCdrHeaderBytes;
-    write_u64_le(bytes, offset, sequence_id);
-    write_u64_le(bytes, offset, timestamp_ns);
-    std::memcpy(bytes.data() + offset, payload_150, kVideoPacketPayloadBytes);
-    offset += kVideoPacketPayloadBytes;
-
-    rclcpp::SerializedMessage serialized(kSerializedVideoPacketBytes);
-    auto &rmw_msg = serialized.get_rcl_serialized_message();
-    std::memcpy(rmw_msg.buffer, bytes.data(), offset);
-    rmw_msg.buffer_length = offset;
-    return serialized;
-}
-
-void VideoEncoderNode::clip_video_stream_backlog() {
-    if (!param_enable_video_stream_) {
-        return;
-    }
-
-    const size_t max_backlog = static_cast<size_t>(
-        param_bandwidth_limit_kbytes_ * 1000.0 * param_max_tx_delay_s_);
-    if (ros2_stream_buffer_.size() <= max_backlog) {
-        return;
-    }
-
-    const size_t target_drop = ros2_stream_buffer_.size() - max_backlog;
-    const size_t drop_bytes = align_drop_to_annexb_start(ros2_stream_buffer_, target_drop);
-    erase_front(ros2_stream_buffer_, drop_bytes);
-    video_stream_dropped_bytes_ += drop_bytes;
-    video_stream_drop_events_++;
-    if (video_stream_drop_events_ % 20 == 1) {
-        RCLCPP_WARN(
-            this->get_logger(),
-            "video stream backlog clipped: dropped=%zuB backlog=%zuB total_dropped=%luB",
-            drop_bytes,
-            ros2_stream_buffer_.size(),
-            video_stream_dropped_bytes_);
     }
 }
 

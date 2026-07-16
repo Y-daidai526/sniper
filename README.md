@@ -1,6 +1,6 @@
 # RoboMaster 自定义客户端图传适配
 
-本仓库只需要构建和运行 `sender/`、`receiver/`。`Pacific_doorlock_sniper/` 只作为参考和可选旧解码器验证来源。
+本仓库只需要构建和运行 `sender/`、`receiver/`。`Pacific_doorlock_sniper/` 只作为参考源码。
 
 ## 1. 安装依赖
 
@@ -42,9 +42,11 @@ python3 -m pip install --break-system-packages paho-mqtt==2.1.0
 编译并运行一端：
 
 ```bash
-./start.sh sender
-./start.sh receiver
+./sender/start.sh
+./receiver/start.sh
 ```
+
+两个脚本都不接收参数，会切换到各自包目录，并在该目录下独立构建和运行。
 
 ## 5. 手动构建和运行
 
@@ -68,29 +70,7 @@ ros2 run sender sender_node --ros-args --params-file install/sender/share/sender
 ros2 run receiver receiver_node --ros-args --params-file install/receiver/share/receiver/config/receiver_params.yaml
 ```
 
-## 6. `/video_stream` 旧解码器验证
-
-如果要用原项目旧解码器看 `/video_stream`，先在根目录编译原 `VideoPacket` type support：
-
-```bash
-colcon build \
-  --base-paths Pacific_doorlock_sniper/src/doorlock_sniper \
-  --packages-select doorlock_sniper \
-  --allow-overriding doorlock_sniper
-source install/setup.bash
-```
-
-旧解码器终端：
-
-```bash
-cd Pacific_doorlock_sniper
-source install/setup.bash
-ros2 run doorlock_decoder decoder_node --ros-args -p topic:=/video_stream
-```
-
-缺少 `doorlock_sniper/msg/VideoPacket` type support 时，sender 会禁用 `/video_stream` 兼容发布；串口、local_test MQTT、receiver 主链路不受影响。
-
-## 7. MQTTX 查看
+## 6. MQTTX 查看
 
 连接 sender 内置 broker：
 

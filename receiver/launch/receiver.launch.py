@@ -7,9 +7,13 @@ from launch_ros.actions import Node
 
 
 def _config_file() -> Path:
-    source_config = Path.cwd() / "receiver" / "config" / "receiver_params.yaml"
-    if source_config.exists():
-        return source_config
+    source_configs = (
+        Path.cwd() / "config" / "receiver_params.yaml",
+        Path.cwd() / "receiver" / "config" / "receiver_params.yaml",
+    )
+    for source_config in source_configs:
+        if source_config.exists():
+            return source_config
     return Path(get_package_share_directory("receiver")) / "config" / "receiver_params.yaml"
 
 
