@@ -13,8 +13,6 @@ namespace sniper::encoder {
 
 namespace {
 constexpr size_t kVideoPacketPayloadBytes = 150;
-constexpr size_t kSerialSliceBytes = 299;
-constexpr size_t kSerialDataBytes = 300;
 constexpr size_t kCdrHeaderBytes = 4;
 constexpr size_t kSerializedVideoPacketBytes = 172;
 
@@ -183,14 +181,9 @@ VideoEncoderNode::~VideoEncoderNode() {
     shutdown_gstreamer();
 }
 
-void VideoEncoderNode::set_serial_data_callback(SerialDataCallback cb) {
+void VideoEncoderNode::set_serial_stream_callback(SerialStreamCallback cb) {
     std::lock_guard<std::mutex> lock(buffer_mutex_);
-    serial_data_cb_ = std::move(cb);
-}
-
-void VideoEncoderNode::set_serial_status_provider(SerialStatusProvider provider) {
-    std::lock_guard<std::mutex> lock(buffer_mutex_);
-    serial_status_provider_ = std::move(provider);
+    serial_stream_cb_ = std::move(cb);
 }
 
 void VideoEncoderNode::initialize_gstreamer() {
@@ -554,46 +547,27 @@ void VideoEncoderNode::pull_stream_and_packetize() {
         GstMapInfo map;
         if (gst_buffer_map(buffer, &map, GST_MAP_READ)) {
             const int64_t now_ns = this->now().nanoseconds();
+            if (serial_stream_cb_) {
+                serial_stream_cb_(map.data, map.size);
+            }
             std::lock_guard<std::mutex> lock(buffer_mutex_);
 
-            // Keep the Pacific-compatible ROS2 stream and the 0x0310 main stream independent.
             if (param_enable_video_stream_) {
                 append_bytes(ros2_stream_buffer_, map.data, map.size);
             }
-            append_bytes(serial_stream_buffer_, map.data, map.size);
 
             publish_video_stream_packets(now_ns, window_ns, window_limit_bytes, max_video_packets_per_pull);
             clip_video_stream_backlog();
-            emit_serial_packets(now_ns);
-            clip_serial_backlog();
 
             if (now_ns - last_telemetry_ns_ > 1000000000LL) {
                 const double telemetry_elapsed_s =
                     last_telemetry_ns_ == 0 ? 0.0 : static_cast<double>(now_ns - last_telemetry_ns_) / 1e9;
-                const uint64_t serial_delta = serial_packets_sent_ - last_telemetry_serial_packets_;
                 const uint64_t ros2_delta = ros2_packets_sent_ - last_telemetry_ros2_packets_;
-                const double serial_rate_hz = telemetry_elapsed_s > 0.0
-                    ? static_cast<double>(serial_delta) / telemetry_elapsed_s
-                    : 0.0;
                 const double topic_rate_hz = telemetry_elapsed_s > 0.0
                     ? static_cast<double>(ros2_delta) / telemetry_elapsed_s
                     : 0.0;
-                const double serial_data_kbytes_per_s =
-                    serial_rate_hz * static_cast<double>(kSerialSliceBytes) / 1000.0;
                 const double topic_data_kbytes_per_s =
                     topic_rate_hz * static_cast<double>(kVideoPacketPayloadBytes) / 1000.0;
-                const std::string serial_port = serial_status_provider_
-                    ? serial_status_provider_()
-                    : std::string("unknown");
-                RCLCPP_INFO(
-                    rclcpp::get_logger("serial stats"),
-                    "rate=%.1fpkt/s data=%.2fkB/s packets=%lu drops=%u backlog=%zuB port=%s",
-                    serial_rate_hz,
-                    serial_data_kbytes_per_s,
-                    serial_packets_sent_,
-                    serial_drop_events_,
-                    serial_stream_buffer_.size(),
-                    serial_port.c_str());
                 if (param_enable_video_stream_ && video_packet_pub_) {
                     RCLCPP_INFO(
                         rclcpp::get_logger("topic stats"),
@@ -605,7 +579,6 @@ void VideoEncoderNode::pull_stream_and_packetize() {
                         ros2_stream_buffer_.size());
                 }
                 last_telemetry_ns_ = now_ns;
-                last_telemetry_serial_packets_ = serial_packets_sent_;
                 last_telemetry_ros2_packets_ = ros2_packets_sent_;
             }
 
@@ -688,36 +661,6 @@ rclcpp::SerializedMessage VideoEncoderNode::serialize_video_packet(
     return serialized;
 }
 
-void VideoEncoderNode::emit_serial_packets(int64_t now_ns) {
-    if (!serial_data_cb_) {
-        return;
-    }
-    if (next_serial_tx_ns_ == 0) {
-        next_serial_tx_ns_ = now_ns;
-    }
-
-    // 没有有足够的数据
-    if (serial_stream_buffer_.size() < kSerialSliceBytes) {
-        return;
-    }
-
-    // 没有足够的延迟
-    while (now_ns < next_serial_tx_ns_) {
-        return;
-    }
-    
-    uint8_t data_300[kSerialDataBytes];
-    data_300[0] = serial_inner_seq_++;
-    std::memcpy(data_300 + 1, serial_stream_buffer_.data(), kSerialSliceBytes);
-
-    serial_data_cb_(data_300);
-    serial_packets_sent_++;
-
-    erase_front(serial_stream_buffer_, kSerialSliceBytes);
-    const int64_t period_ns = static_cast<int64_t>(1000000000.0 / param_serial_max_rate_hz_);
-    next_serial_tx_ns_ = this->now().nanoseconds() + period_ns;
-}
-
 void VideoEncoderNode::clip_video_stream_backlog() {
     if (!param_enable_video_stream_) {
         return;
@@ -741,30 +684,6 @@ void VideoEncoderNode::clip_video_stream_backlog() {
             drop_bytes,
             ros2_stream_buffer_.size(),
             video_stream_dropped_bytes_);
-    }
-}
-
-void VideoEncoderNode::clip_serial_backlog() {
-    const size_t max_backlog = static_cast<size_t>(
-        std::max(1.0, param_serial_max_rate_hz_) *
-        static_cast<double>(kSerialSliceBytes) *
-        param_max_tx_delay_s_);
-    if (serial_stream_buffer_.size() <= max_backlog) {
-        return;
-    }
-
-    const size_t target_drop = serial_stream_buffer_.size() - max_backlog;
-    const size_t drop_bytes = align_drop_to_annexb_start(serial_stream_buffer_, target_drop);
-    erase_front(serial_stream_buffer_, drop_bytes);
-    serial_dropped_bytes_ += drop_bytes;
-    serial_drop_events_++;
-    if (serial_drop_events_ % 20 == 1) {
-        RCLCPP_WARN(
-            this->get_logger(),
-            "serial backlog clipped: dropped=%zuB backlog=%zuB total_dropped=%luB",
-            drop_bytes,
-            serial_stream_buffer_.size(),
-            serial_dropped_bytes_);
     }
 }
 

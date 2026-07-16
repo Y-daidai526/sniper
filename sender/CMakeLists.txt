@@ -78,6 +78,7 @@ rclcpp_components_register_nodes(video_encoder_node "sniper::encoder::VideoEncod
 add_executable(sender_node
   main.cpp
   protocol/serial_frame.cpp
+  serial/serial_send_worker.cpp
   serial/serial_writer.cpp
   local_test/local_test_bridge.cpp
 )

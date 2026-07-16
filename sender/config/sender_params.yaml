@@ -38,11 +38,11 @@ video_encoder:
     # 编码输出图像的宽高。
     output_size: 300
     # 每秒送入 x264 的帧数。
-    output_fps: 60
+    output_fps: 30
     # 编码器 x264 目标码率，单位 kbit/s。
-    target_bitrate: 80
+    target_bitrate: 120
     # 编码器 x264 速度预设，越慢通常压缩效果越好但更吃 CPU。
-    x264_preset: "veryslow"
+    x264_preset: "medium"
     # 是否启用可选的 /video_stream 兼容发布。
     enable_video_stream: true
 

@@ -21,16 +21,16 @@
 
 namespace sniper::encoder {
 
-using SerialDataCallback = std::function<void(const uint8_t *data_300)>;
-using SerialStatusProvider = std::function<std::string()>;
+using SerialStreamCallback = std::function<void(const uint8_t *data, size_t size)>;
 
 class VideoEncoderNode : public rclcpp::Node {
 public:
     explicit VideoEncoderNode(const rclcpp::NodeOptions &options);
     ~VideoEncoderNode() override;
 
-    void set_serial_data_callback(SerialDataCallback cb);
-    void set_serial_status_provider(SerialStatusProvider provider);
+    void set_serial_stream_callback(SerialStreamCallback cb);
+    double serial_max_rate_hz() const { return param_serial_max_rate_hz_; }
+    double max_tx_delay_s() const { return param_max_tx_delay_s_; }
 
 private:
     void initialize_gstreamer();
@@ -54,9 +54,7 @@ private:
         uint64_t sequence_id,
         uint64_t timestamp_ns,
         const uint8_t *payload_150) const;
-    void emit_serial_packets(int64_t now_ns);
     void clip_video_stream_backlog();
-    void clip_serial_backlog();
 
     void display_loop();
 
@@ -69,24 +67,16 @@ private:
     std::shared_ptr<rclcpp::GenericPublisher> video_packet_pub_;
 
     std::vector<uint8_t> ros2_stream_buffer_;
-    std::vector<uint8_t> serial_stream_buffer_;
     std::deque<std::pair<int64_t, size_t>> sent_window_;
     std::mutex buffer_mutex_;
-    SerialDataCallback serial_data_cb_;
-    SerialStatusProvider serial_status_provider_;
+    SerialStreamCallback serial_stream_cb_;
 
     uint64_t video_packet_sequence_id_ = 0;
-    uint8_t serial_inner_seq_ = 0;
     int64_t last_encode_stamp_ns_ = 0;
-    int64_t next_serial_tx_ns_ = 0;
     int64_t last_telemetry_ns_ = 0;
-    uint64_t last_telemetry_serial_packets_ = 0;
     uint64_t last_telemetry_ros2_packets_ = 0;
-    uint64_t serial_dropped_bytes_ = 0;
     uint64_t video_stream_dropped_bytes_ = 0;
-    uint32_t serial_drop_events_ = 0;
     uint32_t video_stream_drop_events_ = 0;
-    uint64_t serial_packets_sent_ = 0;
     uint64_t ros2_packets_sent_ = 0;
     size_t sent_window_bytes_ = 0;
 

@@ -161,6 +161,7 @@ sender/protocol/serial_frame.*          0x0310 构帧
 sender/protocol/crc8.hpp                CRC8
 sender/protocol/crc16.hpp               CRC16
 sender/serial/serial_writer.*           USB 串口热插拔和写帧
+sender/serial/serial_send_worker.*      H264 buffer、独立发送线程、分包和统计
 sender/local_test/local_test_bridge.*   fork/exec Python local_test
 sender/local_test/main.py               stdin 309B frame -> MQTT protobuf
 sender/local_test/serial_parser.py      Python 侧 0x0310 校验
@@ -190,16 +191,19 @@ video_encoder
 同时持有：
 
 ```text
-sniper::serial::SerialWriter
-sniper::local_test::LocalTestBridge
+sniper::serial::SerialSendWorker
 ```
 
-`video_encoder` 通过 `set_serial_data_callback()` 输出 300B data。`sender/main.cpp` 调用 `sniper::protocol::build_frame()` 包成完整 309B 0x0310 裁判帧，然后写给：
+`video_encoder` 通过 `set_serial_stream_callback()` 把 appsink 产出的 H264 Annex-B 字节交给 `SerialSendWorker`。编码回调只复制字节，不执行分包、CRC 或 I/O。
+
+`SerialSendWorker` 启动独立 C++ 发送线程，持有：
 
 ```text
-SerialWriter：enable_serial=true 时启用
-LocalTestBridge stdin：enable_local_test=true 时启用
+SerialWriter：串口热插拔和完整帧写入
+LocalTestBridge：local_test 子进程和 stdin 写入
 ```
+
+发送线程按 `serial_max_rate_hz` 独立调度，从 buffer 取 299B H264，加 inner seq 并调用 `sniper::protocol::build_frame()` 构造完整 309B 0x0310 帧。编码器与发送线程之间只有一把 buffer mutex 和一个 condition variable，CRC、串口、local_test 和日志均不持有该锁。
 
 local_test 脚本目录不进 config。代码按安装目录查找：
 
@@ -340,20 +344,20 @@ target_bitrate <= 80
 appsink 输出的 H264 Annex-B 字节进入两个独立 buffer：
 
 ```text
-serial_stream_buffer_   0x0310 主链路
-ros2_stream_buffer_     /video_stream 兼容调试链路
+SerialSendWorker::stream_buffer_        0x0310 主链路
+VideoEncoderNode::ros2_stream_buffer_   /video_stream 兼容调试链路
 ```
 
 主链路分包：
 
 ```text
-serial_stream_buffer_ 至少有 299B，且 rate gate 允许时：
+独立发送线程中 stream_buffer_ 至少有 299B，且 rate gate 允许时：
   data[0] = serial_inner_seq_++
   data[1:300] = 下一段 299B H264
-  callback(data)
+  build_frame 后写 SerialWriter 和可选 LocalTestBridge
 ```
 
-不补零。H264 不足 299B 时等待。
+不补零，不重复旧包。H264 不足 299B 时发送线程等待新数据。每次最多发送一包，调度延迟后不突发补发。
 
 `/video_stream` 兼容分包：
 
@@ -362,7 +366,7 @@ ros2_stream_buffer_ 至少有 150B，且带宽窗口允许时：
   发布一个 VideoPacket-compatible CDR sample
 ```
 
-主链路由 `serial_max_rate_hz` 限速，最大 50Hz。`/video_stream` 由 `bandwidth_limit_kbytes` 和 `bandwidth_window_s` 控制，不反向影响主链路。
+主链路由独立发送线程按 `serial_max_rate_hz` 限速，最大 50Hz，不再依赖图像回调频率。`/video_stream` 由 `bandwidth_limit_kbytes` 和 `bandwidth_window_s` 控制，不反向影响主链路。
 
 backlog 裁剪：
 
@@ -475,7 +479,7 @@ local_test 日志只保留异常和状态：
 
 ### sender stats
 
-sender 统计约 1 秒打印一次，间隔硬编码在 `VideoEncoderNode::pull_stream_and_packetize()` 的判断处。
+sender 统计约 1 秒打印一次。serial stats 的间隔和计数在 `SerialSendWorker::run()`，topic stats 的间隔和计数在 `VideoEncoderNode::pull_stream_and_packetize()`。
 
 串口 stats logger：
 
@@ -496,7 +500,7 @@ rate      当前窗口发包率
 data      rate * 299B / 1000，只按 H264 有效载荷算
 packets   累计 0x0310 data 包数
 drops     累计 serial backlog 裁剪事件数
-backlog   当前 serial_stream_buffer_ 字节数
+backlog   当前 SerialSendWorker::stream_buffer_ 字节数
 port      当前串口路径、disconnected、disabled 或 unknown
 ```
 
