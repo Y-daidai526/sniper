@@ -1,7 +1,7 @@
 video_decoder:
   ros__parameters:
     # 消息服务器 MQTT broker 地址。
-    broker_host: "127.0.0.1"
+    broker_host: "192.168.12.1"
     # 消息服务器 MQTT broker 端口。
     broker_port: 3333
     # 消息体 Protobuf CustomByteBlock 话题。

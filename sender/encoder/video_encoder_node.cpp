@@ -696,18 +696,26 @@ void VideoEncoderNode::emit_serial_packets(int64_t now_ns) {
         next_serial_tx_ns_ = now_ns;
     }
 
-    const int64_t period_ns = static_cast<int64_t>(1000000000.0 / param_serial_max_rate_hz_);
-    while (serial_stream_buffer_.size() >= kSerialSliceBytes && now_ns >= next_serial_tx_ns_) {
-        uint8_t data_300[kSerialDataBytes];
-        data_300[0] = serial_inner_seq_++;
-        std::memcpy(data_300 + 1, serial_stream_buffer_.data(), kSerialSliceBytes);
-
-        serial_data_cb_(data_300);
-        serial_packets_sent_++;
-
-        erase_front(serial_stream_buffer_, kSerialSliceBytes);
-        next_serial_tx_ns_ += period_ns;
+    // 没有有足够的数据
+    if (serial_stream_buffer_.size() < kSerialSliceBytes) {
+        return;
     }
+
+    // 没有足够的延迟
+    while (now_ns < next_serial_tx_ns_) {
+        return;
+    }
+    
+    uint8_t data_300[kSerialDataBytes];
+    data_300[0] = serial_inner_seq_++;
+    std::memcpy(data_300 + 1, serial_stream_buffer_.data(), kSerialSliceBytes);
+
+    serial_data_cb_(data_300);
+    serial_packets_sent_++;
+
+    erase_front(serial_stream_buffer_, kSerialSliceBytes);
+    const int64_t period_ns = static_cast<int64_t>(1000000000.0 / param_serial_max_rate_hz_);
+    next_serial_tx_ns_ = this->now().nanoseconds() + period_ns;
 }
 
 void VideoEncoderNode::clip_video_stream_backlog() {

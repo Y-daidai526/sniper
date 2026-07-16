@@ -190,6 +190,15 @@ bool SerialWriter::write_frame(const uint8_t *frame, size_t len) {
         }
         total_written += static_cast<size_t>(written);
     }
+
+    while (tcdrain(fd_) != 0) {
+        if (errno == EINTR) {
+            continue;
+        }
+        std::fprintf(stderr, "[serial] tcdrain error: %s\n", std::strerror(errno));
+        close_current_locked();
+        return false;
+    }
     return true;
 }
 

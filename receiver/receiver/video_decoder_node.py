@@ -14,6 +14,11 @@ from .mqtt_client import MqttReceiver
 from .stats_tracker import StatsTracker
 
 
+# Packet loss can make FFmpeg emit many repeated PPS/slice errors for one gap.
+# The receiver reports the gap once and keeps aggregate decode errors in stats.
+av.logging.set_level(av.logging.PANIC)
+
+
 def _required_param(node: Node, name: str, param_type: Parameter.Type):
     node.declare_parameter(name, param_type)
     value = node.get_parameter(name).value
@@ -52,7 +57,7 @@ class VideoDecoderNode(Node):
         self._last_mqtt_retry_log_s = 0.0
 
         self._codec = None
-        self._reset_decoder("startup")
+        self._reset_decoder()
         self._frame_count = 0
         self._stats = StatsTracker()
 
@@ -65,14 +70,13 @@ class VideoDecoderNode(Node):
         self._timer = self.create_timer(0.001, self._poll_mqtt)
         self.get_logger().info("receiver started")
 
-    def _reset_decoder(self, reason: str) -> None:
+    def _reset_decoder(self) -> None:
         self._codec = av.CodecContext.create("h264", "r")
         self._codec.thread_type = "FRAME"
         try:
             self._codec.flags |= av.codec.context.Flags.LOW_DELAY
         except Exception:
             pass
-        self.get_logger().warn(f"reset decoder ({reason})")
 
     def _poll_mqtt(self) -> None:
         self._retry_mqtt_if_needed()
@@ -88,8 +92,8 @@ class VideoDecoderNode(Node):
             if status.duplicate:
                 continue
             if status.gap > 0:
-                self.get_logger().warn(f"sequence gap: missing={status.gap}, reset decoder")
-                self._reset_decoder("sequence gap")
+                self.get_logger().warn(f"sequence gap: missing={status.gap}, decoder reset")
+                self._reset_decoder()
 
             try:
                 for packet in self._codec.parse(h264_slice):

@@ -83,7 +83,7 @@ class MqttReceiver:
             return
 
         self._connected = True
-        client.subscribe(self._topic, qos=0)
+        client.subscribe(self._topic, qos=1)
         print(
             f"[mqtt] connected {self._host}:{self._port} topic={self._topic} client_id={self._client_id}",
             file=sys.stderr,
