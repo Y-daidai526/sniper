@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <utility>
 
 #include "camera/hik_camera_node.hpp"
 #include "encoder/video_encoder_node.hpp"
@@ -27,11 +28,11 @@ std::string require_string_parameter(const rclcpp::Node::SharedPtr &node, const 
     return node->get_parameter(name).as_string();
 }
 
-std::string local_test_dir() {
+std::string local_mqtt_dir() {
     try {
-        return (std::filesystem::path(ament_index_cpp::get_package_share_directory("sender")) / "local_test").string();
+        return (std::filesystem::path(ament_index_cpp::get_package_share_directory("sender")) / "local_mqtt").string();
     } catch (const std::exception &) {
-        return (std::filesystem::current_path() / "sender" / "local_test").string();
+        return (std::filesystem::current_path() / "sender" / "local_mqtt").string();
     }
 }
 } // namespace
@@ -48,30 +49,33 @@ int main(int argc, char **argv) {
 
         auto runtime_node = std::make_shared<rclcpp::Node>("sender_runtime", options);
         const bool enable_serial = require_bool_parameter(runtime_node, "enable_serial");
-        const bool enable_local_test = require_bool_parameter(runtime_node, "enable_local_test");
-        const bool local_test_start_broker = require_bool_parameter(runtime_node, "local_test_start_broker");
-        const std::string local_test_mqtt_host = require_string_parameter(runtime_node, "local_test_mqtt_host");
-        const int local_test_mqtt_port = require_int_parameter(runtime_node, "local_test_mqtt_port");
-        const std::string local_test_mqtt_topic = require_string_parameter(runtime_node, "local_test_mqtt_topic");
-        const std::string local_test_script_dir = local_test_dir();
+        const bool enable_local_mqtt = require_bool_parameter(runtime_node, "enable_local_mqtt");
+        const bool local_mqtt_start_broker = require_bool_parameter(runtime_node, "local_mqtt_start_broker");
+        const std::string local_mqtt_host = require_string_parameter(runtime_node, "local_mqtt_host");
+        const int local_mqtt_port = require_int_parameter(runtime_node, "local_mqtt_port");
+        const std::string local_mqtt_topic = require_string_parameter(runtime_node, "local_mqtt_topic");
+        const std::string local_mqtt_script_dir = local_mqtt_dir();
 
         auto camera_node = std::make_shared<sniper::camera::HikCameraNode>(options);
+        if (!rclcpp::ok()) {
+            return 1;
+        }
         auto encoder_node = std::make_shared<sniper::encoder::VideoEncoderNode>(options);
 
         if (!enable_serial) {
             RCLCPP_WARN(runtime_node->get_logger(), "serial output disabled by config");
         }
-        sniper::serial::SerialSendWorker serial_worker({
-            enable_serial,
-            enable_local_test,
-            local_test_start_broker,
-            local_test_script_dir,
-            local_test_mqtt_host,
-            local_test_mqtt_port,
-            local_test_mqtt_topic,
-            encoder_node->serial_max_rate_hz(),
-            encoder_node->max_tx_delay_s(),
-        });
+        sniper::serial::SerialSendConfig send_config;
+        send_config.enable_serial = enable_serial;
+        send_config.enable_local_mqtt = enable_local_mqtt;
+        send_config.local_mqtt_start_broker = local_mqtt_start_broker;
+        send_config.local_mqtt_script_dir = local_mqtt_script_dir;
+        send_config.local_mqtt_host = local_mqtt_host;
+        send_config.local_mqtt_port = local_mqtt_port;
+        send_config.local_mqtt_topic = local_mqtt_topic;
+        send_config.max_rate_hz = encoder_node->serial_max_rate_hz();
+        send_config.max_tx_delay_s = encoder_node->max_tx_delay_s();
+        sniper::serial::SerialSendWorker serial_worker(std::move(send_config));
         serial_worker.start();
         encoder_node->set_serial_stream_callback(
             [&serial_worker](const uint8_t *data, size_t size) { serial_worker.enqueue(data, size); });

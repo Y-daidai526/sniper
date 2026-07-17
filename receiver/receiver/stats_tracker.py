@@ -11,7 +11,7 @@ class PacketStatus:
 
 class StatsTracker:
     def __init__(self):
-        self._last_print = time.time()
+        self._last_print = time.monotonic()
         self._packet_count = 0
         self._byte_count = 0
         self._gap_count = 0
@@ -42,7 +42,7 @@ class StatsTracker:
             self._byte_count += payload_len
             self._last_seq = seq
 
-        now = time.time()
+        now = time.monotonic()
         if now - self._last_print >= 1.0:
             self._print(now)
             self._last_print = now

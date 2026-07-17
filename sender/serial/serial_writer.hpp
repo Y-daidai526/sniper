@@ -3,7 +3,6 @@
 
 #include <atomic>
 #include <cstdint>
-#include <functional>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -12,14 +11,12 @@ namespace sniper::serial {
 
 class SerialWriter {
 public:
-    using StatusCallback = std::function<void(const std::string &device, bool connected)>;
-
     SerialWriter();
     ~SerialWriter();
 
-    void start(StatusCallback cb);
+    void start();
     void stop();
-    bool write_frame(const uint8_t *frame, size_t len);
+    void write_frame(const uint8_t *frame, size_t len);
     std::string current_device() const;
 
 private:
@@ -34,7 +31,6 @@ private:
     std::thread monitor_thread_;
     std::atomic<bool> running_{false};
     mutable std::mutex write_mutex_;
-    StatusCallback status_cb_;
 };
 
 } // namespace sniper::serial

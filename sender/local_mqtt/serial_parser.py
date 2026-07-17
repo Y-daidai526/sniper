@@ -32,29 +32,28 @@ def crc16(data: bytes) -> int:
     return crc
 
 
-def parse_frame(frame: bytes) -> tuple[bool, bytes | None, int | None, str]:
+def parse_frame(frame: bytes) -> tuple[bool, bytes | None, str]:
     if len(frame) != 309:
-        return False, None, None, f"wrong size: {len(frame)} != 309"
+        return False, None, f"wrong size: {len(frame)} != 309"
     if frame[0] != SOF:
-        return False, None, None, f"bad SOF: 0x{frame[0]:02X}"
+        return False, None, f"bad SOF: 0x{frame[0]:02X}"
 
     data_len = struct.unpack_from("<H", frame, 1)[0]
     if data_len != 300:
-        return False, None, None, f"bad data_len: {data_len}"
+        return False, None, f"bad data_len: {data_len}"
 
-    seq = frame[3]
     expected_crc8 = frame[4]
     actual_crc8 = crc8(frame[:4])
     if actual_crc8 != expected_crc8:
-        return False, None, None, f"CRC8 mismatch: got 0x{actual_crc8:02X}, expected 0x{expected_crc8:02X}"
+        return False, None, f"CRC8 mismatch: got 0x{actual_crc8:02X}, expected 0x{expected_crc8:02X}"
 
     cmd_id = struct.unpack_from("<H", frame, 5)[0]
     if cmd_id != CMD_ID:
-        return False, None, None, f"bad cmd_id: 0x{cmd_id:04X}"
+        return False, None, f"bad cmd_id: 0x{cmd_id:04X}"
 
     expected_crc16 = struct.unpack_from("<H", frame, 307)[0]
     actual_crc16 = crc16(frame[:307])
     if actual_crc16 != expected_crc16:
-        return False, None, None, f"CRC16 mismatch: got 0x{actual_crc16:04X}, expected 0x{expected_crc16:04X}"
+        return False, None, f"CRC16 mismatch: got 0x{actual_crc16:04X}, expected 0x{expected_crc16:04X}"
 
-    return True, frame[7:307], seq, ""
+    return True, frame[7:307], ""

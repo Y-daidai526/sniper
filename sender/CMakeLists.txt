@@ -80,7 +80,7 @@ add_executable(sender_node
   protocol/serial_frame.cpp
   serial/serial_send_worker.cpp
   serial/serial_writer.cpp
-  local_test/local_test_bridge.cpp
+  local_mqtt/local_mqtt_bridge.cpp
 )
 target_compile_features(sender_node PUBLIC cxx_std_17)
 target_include_directories(sender_node PRIVATE
@@ -102,8 +102,8 @@ install(TARGETS hik_camera_node video_encoder_node sender_node
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 
-install(DIRECTORY local_test/
-  DESTINATION share/${PROJECT_NAME}/local_test
+install(DIRECTORY local_mqtt/
+  DESTINATION share/${PROJECT_NAME}/local_mqtt
   PATTERN "__pycache__" EXCLUDE
   PATTERN "*.pyc" EXCLUDE
 )

@@ -37,12 +37,13 @@ def _required_string(node: Node, name: str) -> str:
 class VideoDecoderNode(Node):
     def __init__(self):
         super().__init__("video_decoder")
+        self._destroyed = False
 
         # Runtime selection is intentionally config-only; change YAML for local or match use.
         broker_host = _required_string(self, "broker_host")
-        client_id = _required_string(self, "client_id")
         broker_port = int(_required_param(self, "broker_port", Parameter.Type.INTEGER))
         topic = _required_string(self, "topic")
+        client_id = _required_string(self, "client_id")
         mqtt_queue_size = int(_required_param(self, "mqtt_queue_size", Parameter.Type.INTEGER))
         self._display = bool(_required_param(self, "display", Parameter.Type.BOOL))
         self._display_scale = max(1, int(_required_param(self, "display_scale", Parameter.Type.INTEGER)))
@@ -117,11 +118,7 @@ class VideoDecoderNode(Node):
             self._last_mqtt_retry_log_s = now
 
     def _handle_decoded_frame(self, frame) -> None:
-        if frame is None or frame.width == 0 or frame.height == 0:
-            return
         img = frame.to_ndarray(format="bgr24")
-        if img is None or img.size == 0:
-            return
 
         self._frame_count += 1
         if self._display:
@@ -167,13 +164,17 @@ class VideoDecoderNode(Node):
         cv2.circle(img, (w // 2, h // 2), 24, (170, 255, 170), 1, cv2.LINE_AA)
 
     def destroy_node(self) -> None:
+        if self._destroyed:
+            return
+        self._destroyed = True
+        self.destroy_timer(self._timer)
+        self._mqtt.disconnect()
         if self._display:
             try:
                 self._frame_queue.put_nowait(None)
             except queue.Full:
                 pass
             self._display_thread.join(timeout=1.0)
-        self._mqtt.disconnect()
         super().destroy_node()
 
 
@@ -188,4 +189,4 @@ def main(args=None) -> None:
     finally:
         if node is not None:
             node.destroy_node()
-        rclpy.shutdown()
+        rclpy.try_shutdown()

@@ -9,19 +9,19 @@
 #include <thread>
 #include <vector>
 
-#include "local_test/local_test_bridge.hpp"
+#include "local_mqtt/local_mqtt_bridge.hpp"
 #include "serial/serial_writer.hpp"
 
 namespace sniper::serial {
 
 struct SerialSendConfig {
     bool enable_serial = false;
-    bool enable_local_test = false;
-    bool local_test_start_broker = false;
-    std::string local_test_script_dir;
-    std::string local_test_mqtt_host;
-    int local_test_mqtt_port = 0;
-    std::string local_test_mqtt_topic;
+    bool enable_local_mqtt = false;
+    bool local_mqtt_start_broker = false;
+    std::string local_mqtt_script_dir;
+    std::string local_mqtt_host;
+    int local_mqtt_port = 0;
+    std::string local_mqtt_topic;
     double max_rate_hz = 0.0;
     double max_tx_delay_s = 0.0;
 };
@@ -51,7 +51,7 @@ private:
 
     SerialSendConfig config_;
     SerialWriter serial_writer_;
-    sniper::local_test::LocalTestBridge local_test_bridge_;
+    sniper::local_mqtt::LocalMqttBridge local_mqtt_bridge_;
 
     std::mutex buffer_mutex_;
     std::condition_variable buffer_cv_;

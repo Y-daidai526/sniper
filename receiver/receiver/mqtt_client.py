@@ -52,12 +52,15 @@ class MqttReceiver:
         return True
 
     def disconnect(self) -> None:
-        if self._loop_started:
-            self._client.loop_stop()
+        if not self._loop_started:
+            return
         try:
             self._client.disconnect()
         except Exception:
             pass
+        self._client.loop_stop()
+        self._loop_started = False
+        self._connected = False
 
     def get_data(self, timeout_s: float) -> bytes | None:
         try:

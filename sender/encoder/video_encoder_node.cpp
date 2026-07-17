@@ -7,6 +7,7 @@
 #include <cctype>
 #include <chrono>
 #include <cstring>
+#include <stdexcept>
 
 namespace sniper::encoder {
 
@@ -39,8 +40,7 @@ VideoEncoderNode::VideoEncoderNode(const rclcpp::NodeOptions &options)
     param_crop_size_ = require_int_parameter(*this, "crop_size");
     param_output_size_ = require_int_parameter(*this, "output_size");
     param_output_fps_ = require_int_parameter(*this, "output_fps");
-    param_target_bitrate_ = require_int_parameter(*this, "target_bitrate");
-    param_x264_preset_ = require_string_parameter(*this, "x264_preset");
+    param_force_monochrome_ = require_bool_parameter(*this, "force_monochrome");
     param_static_simplify_ = require_bool_parameter(*this, "static_simplify");
     param_motion_threshold_ = require_int_parameter(*this, "motion_threshold");
     param_motion_erode_px_ = require_int_parameter(*this, "motion_erode_px");
@@ -50,7 +50,8 @@ VideoEncoderNode::VideoEncoderNode(const rclcpp::NodeOptions &options)
     param_bg_update_alpha_ = require_double_parameter(*this, "bg_update_alpha");
     param_bg_blur_sigma_ = require_double_parameter(*this, "bg_blur_sigma");
     param_center_clear_size_ = require_int_parameter(*this, "center_clear_size");
-    param_force_monochrome_ = require_bool_parameter(*this, "force_monochrome");
+    param_target_bitrate_ = require_int_parameter(*this, "target_bitrate");
+    param_x264_preset_ = require_string_parameter(*this, "x264_preset");
     param_serial_max_rate_hz_ = require_double_parameter(*this, "serial_max_rate_hz");
     param_max_tx_delay_s_ = require_double_parameter(*this, "max_tx_delay_s");
     param_enable_display_ = require_bool_parameter(*this, "enable_display");
@@ -131,8 +132,8 @@ void VideoEncoderNode::initialize_gstreamer() {
     GstElement *parser = gst_element_factory_make("h264parse", "parser");
 
     if (!pipeline_ || !appsrc_ || !appsink_ || !convert || !encoder || !parser) {
-        RCLCPP_FATAL(this->get_logger(), "GStreamer element creation failed");
-        return;
+        shutdown_gstreamer();
+        throw std::runtime_error("GStreamer element creation failed");
     }
 
     GstCaps *caps = gst_caps_new_simple(
@@ -237,29 +238,26 @@ void VideoEncoderNode::initialize_gstreamer() {
 
     gst_bin_add_many(GST_BIN(pipeline_), appsrc_, convert, encoder, parser, appsink_, nullptr);
     if (!gst_element_link_many(appsrc_, convert, encoder, parser, appsink_, nullptr)) {
-        RCLCPP_FATAL(this->get_logger(), "GStreamer pipeline link failed");
-        return;
+        shutdown_gstreamer();
+        throw std::runtime_error("GStreamer pipeline link failed");
     }
 
     const GstStateChangeReturn ret = gst_element_set_state(pipeline_, GST_STATE_PLAYING);
     if (ret == GST_STATE_CHANGE_FAILURE) {
-        RCLCPP_FATAL(this->get_logger(), "GStreamer pipeline start failed");
-        return;
+        shutdown_gstreamer();
+        throw std::runtime_error("GStreamer pipeline start failed");
     }
 
-    bus_ = gst_element_get_bus(pipeline_);
     RCLCPP_INFO(this->get_logger(), "GStreamer encoder ready (%s mode)", low_bitrate_mode ? "low-bitrate" : "low-latency");
 }
 
 void VideoEncoderNode::shutdown_gstreamer() {
     if (pipeline_) {
         gst_element_set_state(pipeline_, GST_STATE_NULL);
-        if (bus_) {
-            gst_object_unref(bus_);
-            bus_ = nullptr;
-        }
         gst_object_unref(pipeline_);
         pipeline_ = nullptr;
+        appsrc_ = nullptr;
+        appsink_ = nullptr;
     }
 }
 
@@ -404,7 +402,10 @@ void VideoEncoderNode::image_callback(const sensor_msgs::msg::Image::SharedPtr m
         cv::Mat input = cv_bridge::toCvShare(msg, "bgr8")->image;
         cv::Mat roi_downsample;
         cv::Mat static_removed;
-        cv::Mat processed = preprocess_image(input, &roi_downsample, &static_removed);
+        cv::Mat processed = preprocess_image(
+            input,
+            param_enable_display_ ? &roi_downsample : nullptr,
+            param_enable_display_ ? &static_removed : nullptr);
 
         if (param_enable_display_) {
             cv::Mat raw_preview;

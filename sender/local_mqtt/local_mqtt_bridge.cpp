@@ -1,4 +1,4 @@
-#include "local_test_bridge.hpp"
+#include "local_mqtt_bridge.hpp"
 
 #include <cerrno>
 #include <csignal>
@@ -9,27 +9,28 @@
 #include <unistd.h>
 #include <vector>
 
-namespace sniper::local_test {
+namespace sniper::local_mqtt {
 
-LocalTestBridge::~LocalTestBridge() {
+LocalMqttBridge::~LocalMqttBridge() {
     stop();
 }
 
-bool LocalTestBridge::start(
+bool LocalMqttBridge::start(
     const std::string &script_dir,
     const std::string &mqtt_host,
     int mqtt_port,
     const std::string &mqtt_topic,
     bool start_broker) {
+    stop();
     int pipefd[2];
     if (pipe(pipefd) != 0) {
-        std::fprintf(stderr, "[local_test_bridge] pipe failed: %s\n", std::strerror(errno));
+        std::fprintf(stderr, "[local_mqtt_bridge] pipe failed: %s\n", std::strerror(errno));
         return false;
     }
 
     const pid_t pid = fork();
     if (pid < 0) {
-        std::fprintf(stderr, "[local_test_bridge] fork failed: %s\n", std::strerror(errno));
+        std::fprintf(stderr, "[local_mqtt_bridge] fork failed: %s\n", std::strerror(errno));
         close(pipefd[0]);
         close(pipefd[1]);
         return false;
@@ -41,7 +42,7 @@ bool LocalTestBridge::start(
         close(pipefd[0]);
 
         if (chdir(script_dir.c_str()) != 0) {
-            std::fprintf(stderr, "[local_test_bridge] chdir(%s) failed: %s\n", script_dir.c_str(), std::strerror(errno));
+            std::fprintf(stderr, "[local_mqtt_bridge] chdir(%s) failed: %s\n", script_dir.c_str(), std::strerror(errno));
             _exit(1);
         }
 
@@ -62,18 +63,18 @@ bool LocalTestBridge::start(
         args.push_back(nullptr);
         execvp("python3", const_cast<char *const *>(args.data()));
 
-        std::fprintf(stderr, "[local_test_bridge] execvp failed: %s\n", std::strerror(errno));
+        std::fprintf(stderr, "[local_mqtt_bridge] execvp failed: %s\n", std::strerror(errno));
         _exit(1);
     }
 
     close(pipefd[0]);
     stdin_pipe_ = pipefd[1];
     child_pid_ = pid;
-    std::fprintf(stdout, "[local_test_bridge] child pid=%d\n", static_cast<int>(child_pid_));
+    std::fprintf(stdout, "[local_mqtt_bridge] child pid=%d\n", static_cast<int>(child_pid_));
     return true;
 }
 
-void LocalTestBridge::stop() {
+void LocalMqttBridge::stop() {
     if (stdin_pipe_ >= 0) {
         close(stdin_pipe_);
         stdin_pipe_ = -1;
@@ -89,7 +90,7 @@ void LocalTestBridge::stop() {
         const pid_t ret = waitpid(child_pid_, &status, WNOHANG);
         if (ret == child_pid_) {
             exited = true;
-            std::fprintf(stdout, "[local_test_bridge] child pid=%d exited\n", static_cast<int>(child_pid_));
+            std::fprintf(stdout, "[local_mqtt_bridge] child pid=%d exited\n", static_cast<int>(child_pid_));
             break;
         }
         if (ret < 0) {
@@ -100,7 +101,7 @@ void LocalTestBridge::stop() {
     }
 
     if (!exited && kill(child_pid_, 0) == 0) {
-        std::fprintf(stdout, "[local_test_bridge] terminating child pid=%d\n", static_cast<int>(child_pid_));
+        std::fprintf(stdout, "[local_mqtt_bridge] terminating child pid=%d\n", static_cast<int>(child_pid_));
         kill(child_pid_, SIGTERM);
         waitpid(child_pid_, nullptr, 0);
     }
@@ -108,9 +109,9 @@ void LocalTestBridge::stop() {
     child_pid_ = 0;
 }
 
-bool LocalTestBridge::write_frame(const uint8_t *frame, size_t len) {
+void LocalMqttBridge::write_frame(const uint8_t *frame, size_t len) {
     if (stdin_pipe_ < 0) {
-        return true;
+        return;
     }
 
     size_t total_written = 0;
@@ -120,20 +121,19 @@ bool LocalTestBridge::write_frame(const uint8_t *frame, size_t len) {
             if (errno == EINTR) {
                 continue;
             }
-            std::fprintf(stderr, "[local_test_bridge] write error: %s\n", std::strerror(errno));
+            std::fprintf(stderr, "[local_mqtt_bridge] write error: %s\n", std::strerror(errno));
             close(stdin_pipe_);
             stdin_pipe_ = -1;
-            return false;
+            return;
         }
         if (written == 0) {
-            std::fprintf(stderr, "[local_test_bridge] write returned 0\n");
+            std::fprintf(stderr, "[local_mqtt_bridge] write returned 0\n");
             close(stdin_pipe_);
             stdin_pipe_ = -1;
-            return false;
+            return;
         }
         total_written += static_cast<size_t>(written);
     }
-    return true;
 }
 
-} // namespace sniper::local_test
+} // namespace sniper::local_mqtt

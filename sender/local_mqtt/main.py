@@ -28,17 +28,17 @@ def main() -> int:
         while True:
             raw = sys.stdin.buffer.read(309)
             if len(raw) == 0:
-                print(f"[local_test] stdin EOF frames={frame_count} errors={error_count}", file=sys.stderr)
+                print(f"[local_mqtt] stdin EOF frames={frame_count} errors={error_count}", file=sys.stderr)
                 break
             if len(raw) != 309:
-                print(f"[local_test] short read: {len(raw)}B", file=sys.stderr)
+                print(f"[local_mqtt] short read: {len(raw)}B", file=sys.stderr)
                 break
 
-            ok, data_300, seq, error = parse_frame(raw)
+            ok, data_300, error = parse_frame(raw)
             if not ok:
                 error_count += 1
                 if error_count <= 5 or error_count % 100 == 0:
-                    print(f"[local_test] parse error: {error}", file=sys.stderr)
+                    print(f"[local_mqtt] parse error: {error}", file=sys.stderr)
                 continue
 
             publisher.publish(data_300)

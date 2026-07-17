@@ -9,7 +9,6 @@
 #include <unistd.h>
 
 #include <chrono>
-#include <utility>
 
 namespace sniper::serial {
 
@@ -19,8 +18,10 @@ SerialWriter::~SerialWriter() {
     stop();
 }
 
-void SerialWriter::start(StatusCallback cb) {
-    status_cb_ = std::move(cb);
+void SerialWriter::start() {
+    if (monitor_thread_.joinable()) {
+        return;
+    }
     running_ = true;
     monitor_thread_ = std::thread(&SerialWriter::monitor_loop, this);
 }
@@ -124,52 +125,30 @@ void SerialWriter::close_current() {
 }
 
 void SerialWriter::monitor_loop() {
-    std::string last_device;
-    bool was_connected = false;
-
     std::fprintf(stdout, "[serial] hotplug monitor started\n");
 
     while (running_) {
-        std::string device = find_device();
-
-        if (device != last_device) {
-            if (device.empty()) {
-                if (was_connected) {
-                    close_current();
-                    was_connected = false;
-                    if (status_cb_) {
-                        status_cb_(last_device, false);
-                    }
-                }
-            } else {
+        const std::string device = find_device();
+        const std::string connected_device = current_device();
+        if (device.empty()) {
+            if (!connected_device.empty()) {
                 close_current();
-                if (try_open(device)) {
-                    was_connected = true;
-                    if (status_cb_) {
-                        status_cb_(device, true);
-                    }
-                }
             }
-            last_device = device;
-        }
-
-        if (was_connected && access(last_device.c_str(), W_OK) != 0) {
+        } else if (connected_device.empty()) {
+            try_open(device);
+        } else if (device != connected_device || access(connected_device.c_str(), W_OK) != 0) {
             close_current();
-            was_connected = false;
-            last_device.clear();
-            if (status_cb_) {
-                status_cb_("", false);
-            }
+            try_open(device);
         }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
     }
 }
 
-bool SerialWriter::write_frame(const uint8_t *frame, size_t len) {
+void SerialWriter::write_frame(const uint8_t *frame, size_t len) {
     std::lock_guard<std::mutex> lock(write_mutex_);
     if (fd_ < 0) {
-        return true;
+        return;
     }
 
     size_t total_written = 0;
@@ -181,12 +160,12 @@ bool SerialWriter::write_frame(const uint8_t *frame, size_t len) {
             }
             std::fprintf(stderr, "[serial] write error: %s\n", std::strerror(errno));
             close_current_locked();
-            return false;
+            return;
         }
         if (written == 0) {
             std::fprintf(stderr, "[serial] write returned 0\n");
             close_current_locked();
-            return false;
+            return;
         }
         total_written += static_cast<size_t>(written);
     }
@@ -197,9 +176,8 @@ bool SerialWriter::write_frame(const uint8_t *frame, size_t len) {
         }
         std::fprintf(stderr, "[serial] tcdrain error: %s\n", std::strerror(errno));
         close_current_locked();
-        return false;
+        return;
     }
-    return true;
 }
 
 } // namespace sniper::serial

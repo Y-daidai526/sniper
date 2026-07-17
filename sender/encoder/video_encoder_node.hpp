@@ -47,8 +47,6 @@ private:
     GstElement *pipeline_ = nullptr;
     GstElement *appsrc_ = nullptr;
     GstElement *appsink_ = nullptr;
-    GstBus *bus_ = nullptr;
-
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_sub_;
     SerialStreamCallback serial_stream_cb_;
 

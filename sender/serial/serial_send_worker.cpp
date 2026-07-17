@@ -42,30 +42,24 @@ void SerialSendWorker::start() {
     }
 
     if (config_.enable_serial) {
-        serial_writer_.start([](const std::string &device, bool connected) {
-            if (connected) {
-                std::fprintf(stdout, "[sender] serial connected: %s\n", device.c_str());
-            } else {
-                std::fprintf(stdout, "[sender] serial disconnected: %s\n", device.c_str());
-            }
-        });
+        serial_writer_.start();
     }
 
-    if (config_.enable_local_test) {
+    if (config_.enable_local_mqtt) {
         const std::filesystem::path script_path =
-            std::filesystem::path(config_.local_test_script_dir) / "main.py";
+            std::filesystem::path(config_.local_mqtt_script_dir) / "main.py";
         if (!std::filesystem::exists(script_path)) {
             RCLCPP_WARN(
                 rclcpp::get_logger("sender_runtime"),
-                "local_test bridge disabled: %s not found",
+                "local_mqtt bridge disabled: %s not found",
                 script_path.string().c_str());
-        } else if (!local_test_bridge_.start(
-                       config_.local_test_script_dir,
-                       config_.local_test_mqtt_host,
-                       config_.local_test_mqtt_port,
-                       config_.local_test_mqtt_topic,
-                       config_.local_test_start_broker)) {
-            RCLCPP_ERROR(rclcpp::get_logger("sender_runtime"), "failed to start local_test bridge");
+        } else if (!local_mqtt_bridge_.start(
+                       config_.local_mqtt_script_dir,
+                       config_.local_mqtt_host,
+                       config_.local_mqtt_port,
+                       config_.local_mqtt_topic,
+                       config_.local_mqtt_start_broker)) {
+            RCLCPP_ERROR(rclcpp::get_logger("sender_runtime"), "failed to start local_mqtt bridge");
         }
     }
 
@@ -85,7 +79,7 @@ void SerialSendWorker::stop() {
     if (send_thread_.joinable()) {
         send_thread_.join();
     }
-    local_test_bridge_.stop();
+    local_mqtt_bridge_.stop();
     serial_writer_.stop();
 }
 
@@ -190,8 +184,8 @@ void SerialSendWorker::run() {
             if (config_.enable_serial) {
                 serial_writer_.write_frame(frame.data(), frame.size());
             }
-            if (config_.enable_local_test && local_test_bridge_.is_running()) {
-                local_test_bridge_.write_frame(frame.data(), frame.size());
+            if (config_.enable_local_mqtt) {
+                local_mqtt_bridge_.write_frame(frame.data(), frame.size());
             }
             packets_sent_++;
         }

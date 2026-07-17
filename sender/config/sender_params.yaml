@@ -3,28 +3,28 @@ sender_runtime:
     # 是否向 /dev/ttyACM* 或 /dev/ttyUSB* 写入 0x0310 裁判帧。
     enable_serial: true
     # 是否把同一份 0x0310 帧转发到本地 MQTT 测试链路。
-    enable_local_test: true
+    enable_local_mqtt: true
     # 是否启动内置 MQTT broker，供 receiver 本地测试连接。
-    local_test_start_broker: true
+    local_mqtt_start_broker: true
     # 本地测试 MQTT 绑定和连接地址。
-    local_test_mqtt_host: "127.0.0.1"
+    local_mqtt_host: "127.0.0.1"
     # 本地测试 MQTT 端口。
-    local_test_mqtt_port: 3333
+    local_mqtt_port: 3333
     # 本地测试 MQTT protobuf 话题。
-    local_test_mqtt_topic: "CustomByteBlock"
+    local_mqtt_topic: "CustomByteBlock"
 
 hik_camera:
   ros__parameters:
     # 相机图像发布是否使用 sensor-data QoS。
     use_sensor_data_qos: true
-    # 相机曝光时间，根据现场亮度和运动模糊调整。
-    exposure_time: 12000.0
-    # 相机模拟增益，越高越亮但噪声也越多。
-    gain: 10.0
     # 相机信息使用的 CameraInfo 名称。
     camera_name: "hik_camera"
     # 可选相机标定 URL，不使用时留空。
     camera_info_url: ""
+    # 相机曝光时间，根据现场亮度和运动模糊调整。
+    exposure_time: 12000.0
+    # 相机模拟增益，越高越亮但噪声也越多。
+    gain: 10.0
 
 video_encoder:
   ros__parameters:
@@ -37,11 +37,9 @@ video_encoder:
     output_size: 300
     # 每秒送入 x264 的帧数。
     output_fps: 30
-    # 编码器 x264 目标码率，单位 kbit/s。
-    target_bitrate: 120
-    # 编码器 x264 速度预设，越慢通常压缩效果越好但更吃 CPU。
-    x264_preset: "ultrafast"
 
+    # 编码前是否强制转为灰度图。
+    force_monochrome: false
     # 是否简化静态背景以降低码率。
     static_simplify: true
     # 运动检测阈值，越低越敏感。
@@ -60,8 +58,11 @@ video_encoder:
     bg_blur_sigma: 1.8
     # 中心区域保持清晰的方形尺寸。
     center_clear_size: 150
-    # 编码前是否强制转为灰度图。
-    force_monochrome: false
+
+    # 编码器 x264 目标码率，单位 kbit/s。
+    target_bitrate: 120
+    # 编码器 x264 速度预设，越慢通常压缩效果越好但更吃 CPU。
+    x264_preset: "ultrafast"
 
     # 0x0310 串口和本地测试链路最大发包率。
     serial_max_rate_hz: 50.0

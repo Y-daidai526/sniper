@@ -13,7 +13,7 @@
   <depend>rclpy</depend>
   <exec_depend>ament_index_python</exec_depend>
 
-  <!-- Runtime Python dependencies are installed via apt; amqtt is only needed for sender local_test broker. -->
+  <!-- Runtime Python dependencies are installed via apt; amqtt is only needed for sender local_mqtt broker. -->
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
