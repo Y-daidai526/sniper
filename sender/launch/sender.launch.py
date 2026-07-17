@@ -2,7 +2,8 @@ from pathlib import Path
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import LogInfo, SetEnvironmentVariable
+from launch.actions import LogInfo, RegisterEventHandler, SetEnvironmentVariable, Shutdown
+from launch.event_handlers import OnProcessExit
 from launch_ros.actions import Node
 
 
@@ -24,12 +25,34 @@ def generate_launch_description():
         "[{severity}] [{name}]: {message}",
     )
 
-    sender_node = Node(
-        package="sender",
-        executable="sender_node",
-        parameters=[str(config_file)],
-        output="screen",
-        emulate_tty=True,
+    node_specs = (
+        ("sender", "camera_encoder_node"),
+        ("sender", "rm_frame_encoder_node"),
+        ("sender", "serial_sender_node"),
+        ("sender", "mqtt_broker_node"),
+        ("sender", "mqtt_sender_node"),
     )
+    nodes = [
+        Node(
+            package=package,
+            executable=executable,
+            namespace="sender",
+            parameters=[str(config_file)],
+            output="screen",
+            emulate_tty=True,
+        )
+        for package, executable in node_specs
+    ]
+    exit_handlers = [
+        RegisterEventHandler(
+            OnProcessExit(
+                target_action=node,
+                on_exit=[Shutdown(reason=f"{executable} exited")],
+            )
+        )
+        for node, (_, executable) in zip(nodes, node_specs)
+    ]
 
-    return LaunchDescription([log_format, LogInfo(msg=f"sender config: {config_file}"), sender_node])
+    return LaunchDescription(
+        [log_format, LogInfo(msg=f"sender config: {config_file}"), *exit_handlers, *nodes]
+    )

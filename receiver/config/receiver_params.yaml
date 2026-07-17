@@ -1,4 +1,4 @@
-video_decoder:
+/receiver/mqtt_receiver:
   ros__parameters:
     # 消息服务器 MQTT broker 地址。
     broker_host: "192.168.12.1"
@@ -6,11 +6,11 @@ video_decoder:
     broker_port: 3333
     # 消息体 Protobuf CustomByteBlock 话题。
     topic: "CustomByteBlock"
-    # 客户端 MQTT client id，多 receiver 同时运行时需要保持唯一。
-    client_id: "1"
-    # 接收到的 MQTT 视频包最大队列长度，满了会丢弃旧包。
-    mqtt_queue_size: 1000
 
+/receiver/video_decoder:
+  ros__parameters:
+    # 编码数据 ROS 订阅队列长度，积压时由 ROS 丢弃旧消息。
+    queue_size: 1000
     # 是否显示 OpenCV 接收画面窗口。
     display: true
     # 解码后 300x300 图像的显示放大倍率。

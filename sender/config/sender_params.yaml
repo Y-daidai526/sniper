@@ -1,19 +1,4 @@
-sender_runtime:
-  ros__parameters:
-    # 是否向 /dev/ttyACM* 或 /dev/ttyUSB* 写入 0x0310 裁判帧。
-    enable_serial: true
-    # 是否把同一份 0x0310 帧转发到本地 MQTT 测试链路。
-    enable_local_mqtt: true
-    # 是否启动内置 MQTT broker，供 receiver 本地测试连接。
-    local_mqtt_start_broker: true
-    # 本地测试 MQTT 绑定和连接地址。
-    local_mqtt_host: "127.0.0.1"
-    # 本地测试 MQTT 端口。
-    local_mqtt_port: 3333
-    # 本地测试 MQTT protobuf 话题。
-    local_mqtt_topic: "CustomByteBlock"
-
-hik_camera:
+/sender/hik_camera:
   ros__parameters:
     # 相机图像发布是否使用 sensor-data QoS。
     use_sensor_data_qos: true
@@ -25,19 +10,15 @@ hik_camera:
     exposure_time: 12000.0
     # 相机模拟增益，越高越亮但噪声也越多。
     gain: 10.0
+    # 海康相机采集和发布帧率，也是编码器使用的输入帧率。
+    frame_rate: 30.0
 
-video_encoder:
+/sender/video_encoder:
   ros__parameters:
-    # 编码器订阅的相机图像话题。
-    input_topic: "/image_raw"
-
     # 缩放前的中心裁剪尺寸。
     crop_size: 800
     # 编码输出图像的宽高。
     output_size: 300
-    # 每秒送入 x264 的帧数。
-    output_fps: 30
-
     # 编码前是否强制转为灰度图。
     force_monochrome: false
     # 是否简化静态背景以降低码率。
@@ -64,10 +45,34 @@ video_encoder:
     # 编码器 x264 速度预设，越慢通常压缩效果越好但更吃 CPU。
     x264_preset: "ultrafast"
 
-    # 0x0310 串口和本地测试链路最大发包率。
-    serial_max_rate_hz: 50.0
-    # 编码 backlog 最大延迟，超过后丢弃旧 H264 数据。
-    max_tx_delay_s: 1.0
-
     # 是否显示 sender 端 OpenCV 预览窗口。
     enable_display: true
+
+/sender/serial_sender:
+  ros__parameters:
+    # 是否向 /dev/ttyACM* 或 /dev/ttyUSB* 写入裁判帧。
+    enabled: true
+    # 串口发送线程每秒最多取出的完整裁判帧数量，最大为 50。
+    max_rate_hz: 50.0
+    # 完整裁判帧积压达到该数量时清空整个发送队列。
+    max_backlog_frames: 50
+
+/sender/mqtt_sender:
+  ros__parameters:
+    # 是否把裁判帧转发为 MQTT CustomByteBlock。
+    enabled: true
+    # MQTT publisher 连接地址。
+    host: "127.0.0.1"
+    # MQTT publisher 连接端口。
+    port: 3333
+    # MQTT protobuf 话题。
+    topic: "CustomByteBlock"
+
+/sender/mqtt_broker:
+  ros__parameters:
+    # 是否启动 sender 内置的 amqtt broker。
+    enabled: true
+    # 内置 broker 监听地址。
+    host: "127.0.0.1"
+    # 内置 broker 监听端口。
+    port: 3333

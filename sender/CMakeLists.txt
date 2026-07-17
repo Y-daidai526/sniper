@@ -6,10 +6,10 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif()
 
 find_package(ament_cmake REQUIRED)
-find_package(ament_index_cpp REQUIRED)
+find_package(ament_cmake_python REQUIRED)
 find_package(rclcpp REQUIRED)
-find_package(rclcpp_components REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(image_transport REQUIRED)
@@ -25,87 +25,84 @@ set(MVS_ROOT /opt/MVS)
 set(MVS_INCLUDE_DIR ${MVS_ROOT}/include)
 set(MVS_LIB_DIR ${MVS_ROOT}/lib/64)
 
-add_library(hik_camera_node SHARED
-  camera/hik_camera_node.cpp
+add_executable(camera_encoder_node
+  camera_encoder_node/camera_encoder_node.cpp
+  hik_camera_node/hik_camera_node.cpp
+  video_encoder_node/video_encoder_node.cpp
 )
-target_compile_features(hik_camera_node PUBLIC cxx_std_17)
-target_include_directories(hik_camera_node PUBLIC
+target_compile_features(camera_encoder_node PUBLIC cxx_std_17)
+target_include_directories(camera_encoder_node PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}
+  ${GSTREAMER_INCLUDE_DIRS}
   ${OpenCV_INCLUDE_DIRS}
   ${MVS_INCLUDE_DIR}
 )
-target_link_libraries(hik_camera_node PUBLIC
+target_compile_options(camera_encoder_node PRIVATE ${GSTREAMER_CFLAGS_OTHER})
+target_link_directories(camera_encoder_node PRIVATE ${GSTREAMER_LIBRARY_DIRS})
+target_link_libraries(camera_encoder_node PUBLIC
   ${sensor_msgs_TARGETS}
   camera_info_manager::camera_info_manager
+  cv_bridge::cv_bridge
   image_transport::image_transport
   rclcpp::rclcpp
-  rclcpp_components::component
-  rclcpp_components::component_manager
   sensor_msgs::sensor_msgs_library
+  ${std_msgs_TARGETS}
   ${OpenCV_LIBRARIES}
+  ${GSTREAMER_LIBRARIES}
+  ${GSTREAMER_APP_LIBRARIES}
   ${MVS_LIB_DIR}/libFormatConversion.so
   ${MVS_LIB_DIR}/libMediaProcess.so
   ${MVS_LIB_DIR}/libMvCameraControl.so
   ${MVS_LIB_DIR}/libMVRender.so
   ${MVS_LIB_DIR}/libMvUsb3vTL.so
 )
-rclcpp_components_register_nodes(hik_camera_node "sniper::camera::HikCameraNode")
 
-add_library(video_encoder_node SHARED
-  encoder/video_encoder_node.cpp
+add_executable(rm_frame_encoder_node
+  rm_frame_encoder_node/rm_frame_encoder_node.cpp
+  rm_frame_encoder_node/rm_frame.cpp
 )
-target_compile_features(video_encoder_node PUBLIC cxx_std_17)
-target_include_directories(video_encoder_node PUBLIC
-  ${CMAKE_CURRENT_SOURCE_DIR}
-  ${GSTREAMER_INCLUDE_DIRS}
-  ${OpenCV_INCLUDE_DIRS}
-)
-target_compile_options(video_encoder_node PRIVATE ${GSTREAMER_CFLAGS_OTHER})
-target_link_directories(video_encoder_node PRIVATE ${GSTREAMER_LIBRARY_DIRS})
-target_link_libraries(video_encoder_node PUBLIC
-  ${sensor_msgs_TARGETS}
-  cv_bridge::cv_bridge
-  rclcpp::rclcpp
-  rclcpp_components::component
-  rclcpp_components::component_manager
-  sensor_msgs::sensor_msgs_library
-  ${OpenCV_LIBRARIES}
-  ${GSTREAMER_LIBRARIES}
-  ${GSTREAMER_APP_LIBRARIES}
-)
-rclcpp_components_register_nodes(video_encoder_node "sniper::encoder::VideoEncoderNode")
-
-add_executable(sender_node
-  main.cpp
-  protocol/serial_frame.cpp
-  serial/serial_send_worker.cpp
-  serial/serial_writer.cpp
-  local_mqtt/local_mqtt_bridge.cpp
-)
-target_compile_features(sender_node PUBLIC cxx_std_17)
-target_include_directories(sender_node PRIVATE
+target_compile_features(rm_frame_encoder_node PUBLIC cxx_std_17)
+target_include_directories(rm_frame_encoder_node PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}
 )
-target_link_libraries(sender_node PRIVATE
-  hik_camera_node
-  video_encoder_node
-  ament_index_cpp::ament_index_cpp
+target_link_libraries(rm_frame_encoder_node PUBLIC
   rclcpp::rclcpp
-  ${GSTREAMER_LIBRARIES}
-  ${GSTREAMER_APP_LIBRARIES}
-  ${OpenCV_LIBRARIES}
+  ${std_msgs_TARGETS}
 )
 
-install(TARGETS hik_camera_node video_encoder_node sender_node
-  ARCHIVE DESTINATION lib
-  LIBRARY DESTINATION lib
+add_executable(serial_sender_node
+  serial_sender_node/serial_sender_node.cpp
+  serial_sender_node/serial_writer.cpp
+)
+target_compile_features(serial_sender_node PUBLIC cxx_std_17)
+target_include_directories(serial_sender_node PUBLIC
+  ${CMAKE_CURRENT_SOURCE_DIR}
+)
+target_link_libraries(serial_sender_node PUBLIC
+  rclcpp::rclcpp
+  ${std_msgs_TARGETS}
+)
+
+install(TARGETS
+  camera_encoder_node
+  rm_frame_encoder_node
+  serial_sender_node
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 
-install(DIRECTORY local_mqtt/
-  DESTINATION share/${PROJECT_NAME}/local_mqtt
-  PATTERN "__pycache__" EXCLUDE
-  PATTERN "*.pyc" EXCLUDE
+ament_python_install_package(mqtt_broker_node)
+ament_python_install_package(mqtt_sender_node)
+
+install(PROGRAMS
+  mqtt_broker_node/mqtt_broker_node.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME mqtt_broker_node
+)
+
+install(PROGRAMS
+  mqtt_sender_node/mqtt_sender_node.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME mqtt_sender_node
 )
 
 install(DIRECTORY config/
@@ -114,6 +111,8 @@ install(DIRECTORY config/
 
 install(DIRECTORY launch/
   DESTINATION share/${PROJECT_NAME}/launch
+  PATTERN "__pycache__" EXCLUDE
+  PATTERN "*.pyc" EXCLUDE
 )
 
 ament_package()

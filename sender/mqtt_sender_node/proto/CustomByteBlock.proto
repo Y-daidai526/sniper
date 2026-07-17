@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package sniper;
+
+// 裁判系统 MQTT 图传数据块
+// topic: CustomByteBlock
+message CustomByteBlock {
+    optional bytes data = 1;
+}
