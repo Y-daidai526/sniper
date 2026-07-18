@@ -18,6 +18,12 @@ sudo apt install -y \
   python3-pip python3-av python3-opencv
 ```
 
+### 安装 ROS 相关依赖
+
+```bash
+rosdepc install --from-paths sender receiver --ignore-src -r -y
+```
+
 ### pip
 
 ```bash
@@ -40,6 +46,12 @@ pip install --break-system-packages paho-mqtt==2.1.0 amqtt
 ./start_sender.sh
 ```
 
+需要在具备图形环境的终端显示 sender 四宫格预览时：
+
+```bash
+./start_sender.sh show:=true
+```
+
 程序流程：
 
 - 从海康相机获取图像
@@ -55,6 +67,7 @@ pip install --break-system-packages paho-mqtt==2.1.0 amqtt
 ```text
 /sender/image_raw       sensor_msgs/Image           检查相机采集的原始 BGR8 图像和帧率
 /sender/camera_info     sensor_msgs/CameraInfo      检查相机标定信息
+/sender/video_preview   sensor_msgs/Image           检查 sender 四宫格处理预览
 /sender/encoded_stream  std_msgs/UInt8MultiArray    检查编码器输出的 H264 Annex-B 码流
 /sender/rm_frame        std_msgs/UInt8MultiArray    检查封装后的 309B RoboMaster 0x0310 帧
 ```

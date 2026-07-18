@@ -50,7 +50,7 @@ VideoEncoderNode::VideoEncoderNode(double frame_rate, const rclcpp::NodeOptions 
     param_center_clear_size_ = require_int_parameter(*this, "center_clear_size");
     param_target_bitrate_ = require_int_parameter(*this, "target_bitrate");
     param_x264_preset_ = require_string_parameter(*this, "x264_preset");
-    param_enable_display_ = require_bool_parameter(*this, "enable_display");
+    show_ = this->declare_parameter<bool>("show", false);
 
     if (!std::isfinite(frame_rate_) || frame_rate_ <= 0.0) {
         throw std::invalid_argument("frame_rate must be greater than zero");
@@ -75,10 +75,15 @@ VideoEncoderNode::VideoEncoderNode(double frame_rate, const rclcpp::NodeOptions 
     encoded_stream_pub_ = this->create_publisher<std_msgs::msg::UInt8MultiArray>(
         "encoded_stream",
         rclcpp::QoS(20).reliable());
+    auto preview_qos = rclcpp::SensorDataQoS();
+    preview_qos.keep_last(1);
+    preview_pub_ = this->create_publisher<sensor_msgs::msg::Image>(
+        "video_preview",
+        preview_qos);
 
     initialize_gstreamer();
 
-    if (param_enable_display_) {
+    if (show_) {
         cv::namedWindow("Sniper Sender", cv::WINDOW_NORMAL);
         cv::resizeWindow("Sniper Sender", param_output_size_ * 2, param_output_size_ * 2);
         display_timer_ = create_wall_timer(
@@ -97,7 +102,7 @@ VideoEncoderNode::VideoEncoderNode(double frame_rate, const rclcpp::NodeOptions 
 }
 
 VideoEncoderNode::~VideoEncoderNode() {
-    if (param_enable_display_) {
+    if (show_) {
         display_timer_.reset();
         cv::destroyWindow("Sniper Sender");
     }
@@ -381,22 +386,26 @@ void VideoEncoderNode::image_callback(const sensor_msgs::msg::Image::SharedPtr m
         cv::Mat static_removed;
         cv::Mat processed = preprocess_image(
             input,
-            param_enable_display_ ? &roi_downsample : nullptr,
-            param_enable_display_ ? &static_removed : nullptr);
+            &roi_downsample,
+            &static_removed);
 
-        if (param_enable_display_) {
-            cv::Mat raw_preview;
-            cv::resize(
-                input,
-                raw_preview,
-                cv::Size(std::max(1, input.cols / 2), std::max(1, input.rows / 2)),
-                0,
-                0,
-                cv::INTER_AREA);
-            raw_preview.copyTo(display_raw_frame_);
-            roi_downsample.copyTo(display_roi_frame_);
-            static_removed.copyTo(display_static_frame_);
-            processed.copyTo(display_frame_);
+        cv::Mat raw_preview;
+        cv::resize(
+            input,
+            raw_preview,
+            cv::Size(std::max(1, input.cols / 2), std::max(1, input.rows / 2)),
+            0,
+            0,
+            cv::INTER_AREA);
+        cv::Mat preview = build_preview(
+            raw_preview,
+            roi_downsample,
+            static_removed,
+            processed);
+        auto preview_msg = cv_bridge::CvImage(msg->header, "bgr8", preview).toImageMsg();
+        preview_pub_->publish(*preview_msg);
+        if (show_) {
+            preview.copyTo(preview_frame_);
         }
 
         push_frame_to_gstreamer(processed);
@@ -457,9 +466,11 @@ void VideoEncoderNode::pull_encoded_stream() {
     }
 }
 
-void VideoEncoderNode::display_callback() {
-    constexpr const char *kWindowName = "Sniper Sender";
-
+cv::Mat VideoEncoderNode::build_preview(
+    const cv::Mat &raw_frame,
+    const cv::Mat &roi_frame,
+    const cv::Mat &static_frame,
+    const cv::Mat &encoder_frame) const {
     const auto render_tile = [this](
                                  const cv::Mat &source,
                                  const char *label,
@@ -499,23 +510,6 @@ void VideoEncoderNode::display_callback() {
             cv::LINE_AA);
     };
 
-    cv::Mat raw_frame;
-    cv::Mat roi_frame;
-    cv::Mat static_frame;
-    cv::Mat frame;
-    if (!display_raw_frame_.empty()) {
-        display_raw_frame_.copyTo(raw_frame);
-    }
-    if (!display_roi_frame_.empty()) {
-        display_roi_frame_.copyTo(roi_frame);
-    }
-    if (!display_static_frame_.empty()) {
-        display_static_frame_.copyTo(static_frame);
-    }
-    if (!display_frame_.empty()) {
-        display_frame_.copyTo(frame);
-    }
-
     cv::Mat raw_tile;
     cv::Mat roi_tile;
     cv::Mat static_tile;
@@ -523,7 +517,7 @@ void VideoEncoderNode::display_callback() {
     render_tile(raw_frame, "Raw", raw_tile);
     render_tile(roi_frame, "ROI", roi_tile);
     render_tile(static_frame, "Static", static_tile);
-    render_tile(frame, "Encoder", encoder_tile);
+    render_tile(encoder_frame, "Encoder", encoder_tile);
 
     cv::Mat top_row;
     cv::Mat bottom_row;
@@ -531,8 +525,15 @@ void VideoEncoderNode::display_callback() {
     cv::hconcat(raw_tile, roi_tile, top_row);
     cv::hconcat(static_tile, encoder_tile, bottom_row);
     cv::vconcat(top_row, bottom_row, dashboard);
-    cv::imshow(kWindowName, dashboard);
+    return dashboard;
+}
 
+void VideoEncoderNode::display_callback() {
+    constexpr const char *kWindowName = "Sniper Sender";
+
+    if (!preview_frame_.empty()) {
+        cv::imshow(kWindowName, preview_frame_);
+    }
     cv::waitKey(1);
 }
 

@@ -45,9 +45,6 @@
     # 编码器 x264 速度预设，越慢通常压缩效果越好但更吃 CPU。
     x264_preset: "ultrafast"
 
-    # 是否显示 sender 端 OpenCV 预览窗口。
-    enable_display: true
-
 /sender/serial_sender:
   ros__parameters:
     # 是否向 /dev/ttyACM* 或 /dev/ttyUSB* 写入裁判帧。

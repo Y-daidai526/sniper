@@ -33,6 +33,11 @@ private:
     void push_frame_to_gstreamer(const cv::Mat &frame);
     void pull_encoded_stream();
 
+    cv::Mat build_preview(
+        const cv::Mat &raw_frame,
+        const cv::Mat &roi_frame,
+        const cv::Mat &static_frame,
+        const cv::Mat &encoder_frame) const;
     void display_callback();
 
     GstElement *pipeline_ = nullptr;
@@ -40,12 +45,10 @@ private:
     GstElement *appsink_ = nullptr;
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_sub_;
     rclcpp::Publisher<std_msgs::msg::UInt8MultiArray>::SharedPtr encoded_stream_pub_;
+    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr preview_pub_;
 
     rclcpp::TimerBase::SharedPtr display_timer_;
-    cv::Mat display_raw_frame_;
-    cv::Mat display_roi_frame_;
-    cv::Mat display_static_frame_;
-    cv::Mat display_frame_;
+    cv::Mat preview_frame_;
 
     cv::Mat background_gray_f32_;
     cv::Mat motion_erode_kernel_;
@@ -67,7 +70,7 @@ private:
     double param_bg_blur_sigma_ = 0.0;
     int param_center_clear_size_ = 0;
     bool param_force_monochrome_ = false;
-    bool param_enable_display_ = false;
+    bool show_ = false;
     std::string param_x264_preset_;
 };
 

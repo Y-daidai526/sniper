@@ -2,9 +2,17 @@ from pathlib import Path
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import LogInfo, RegisterEventHandler, SetEnvironmentVariable, Shutdown
+from launch.actions import (
+    DeclareLaunchArgument,
+    LogInfo,
+    RegisterEventHandler,
+    SetEnvironmentVariable,
+    Shutdown,
+)
 from launch.event_handlers import OnProcessExit
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def _config_file() -> Path:
@@ -20,6 +28,12 @@ def _config_file() -> Path:
 
 def generate_launch_description():
     config_file = _config_file()
+    show = LaunchConfiguration("show")
+    show_argument = DeclareLaunchArgument(
+        "show",
+        default_value="false",
+        description="Show the sender video preview window",
+    )
     log_format = SetEnvironmentVariable(
         "RCUTILS_CONSOLE_OUTPUT_FORMAT",
         "[{severity}] [{name}]: {message}",
@@ -37,7 +51,14 @@ def generate_launch_description():
             package=package,
             executable=executable,
             namespace="sender",
-            parameters=[str(config_file)],
+            parameters=[
+                str(config_file),
+                *(
+                    [{"show": ParameterValue(show, value_type=bool)}]
+                    if executable == "camera_encoder_node"
+                    else []
+                ),
+            ],
             output="screen",
             emulate_tty=True,
         )
@@ -54,5 +75,11 @@ def generate_launch_description():
     ]
 
     return LaunchDescription(
-        [log_format, LogInfo(msg=f"sender config: {config_file}"), *exit_handlers, *nodes]
+        [
+            show_argument,
+            log_format,
+            LogInfo(msg=f"sender config: {config_file}"),
+            *exit_handlers,
+            *nodes,
+        ]
     )

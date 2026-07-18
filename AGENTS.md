@@ -45,6 +45,7 @@ camera_encoder_node process
     -> /sender/camera_info               sensor_msgs/CameraInfo
   /sender/video_encoder
     -> /sender/encoded_stream            std_msgs/UInt8MultiArray, H264 Annex-B
+    -> /sender/video_preview             sensor_msgs/Image, sender 四宫格预览
 
 /sender/rm_frame_encoder
   -> /sender/rm_frame                    std_msgs/UInt8MultiArray, 完整 309B 帧
@@ -92,6 +93,7 @@ receiver launch 启动 2 个进程、2 个 ROS 节点：
 colcon build --symlink-install --packages-select sender receiver
 source install/setup.bash
 ros2 launch sender sender.launch.py
+ros2 launch sender sender.launch.py show:=true
 ros2 launch receiver receiver.launch.py client_id:=1
 ```
 
@@ -114,6 +116,8 @@ receiver/launch/receiver.launch.py
 ```
 
 receiver 的 MQTT `client_id` 是 launch 参数，不写入 YAML。未提供时 launch 通过 `input()` 询问；空输入、EOF 或非交互环境必须显式传入。
+
+sender 的 `show` 是 launch 参数，不写入 YAML，默认 `false`。只有在具备图形环境并显式传入 `show:=true` 时才创建 OpenCV 四宫格窗口。
 
 ## 配置原则
 
@@ -168,10 +172,9 @@ bg_blur_sigma
 center_clear_size
 target_bitrate
 x264_preset
-enable_display
 ```
 
-编码器固定订阅同 namespace 的 `image_raw`，不提供 `input_topic` 参数。
+编码器固定订阅同 namespace 的 `image_raw`，不提供 `input_topic` 参数。每个输入帧都生成并发布 `/sender/video_preview` 四宫格 BGR8 图像，不依赖订阅者数量。
 
 `/sender/serial_sender`：
 
@@ -326,7 +329,7 @@ pipeline 元素创建、link 或进入 PLAYING 失败时构造函数抛异常。
 
 `target_bitrate <= 80` 使用低码率质量模式，保留 B 帧、lookahead、AQ 和 mbtree；更高码率使用无 B 帧、无 lookahead 的低延迟模式。
 
-`enable_display=true` 时创建 sender 四宫格预览，16ms timer 与编码回调运行在同一个单线程 executor，避免 Qt 跨线程创建/销毁。GUI 很慢时仍可能影响编码时序；生产环境不需要预览时可在 YAML 关闭。
+sender launch 的 `show:=true` 会创建四宫格预览窗口，16ms timer 与编码回调运行在同一个单线程 executor，避免 Qt 跨线程创建/销毁。默认不创建窗口；`/sender/video_preview` 无论是否显示窗口、是否有订阅者都会持续发布。
 
 ### RM 帧编码
 
